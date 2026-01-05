@@ -1,0 +1,29 @@
+paths:
+  raw_dir: data/raw
+  interim_dir: data/interim
+  processed_dir: data/processed
+  figures_dir: figures
+  reports_dir: reports
+
+inputs:
+  mix_glob: "MIX_*.mzML"
+  blank_glob: "BLANK_*.mzML"
+  gnps_mgf_zip: "GNPS_SUBSET.mgf.zip"
+  known_masses_csv: "KNOWN_MASSES.csv"
+
+ms2_extraction:
+  precursor_mz_tolerance_ppm: 10.0
+  min_ms2_peaks: 5
+  min_intensity: 1000.0
+
+feature_finding:
+  noise_threshold_int: 1000.0
+  mass_error_ppm: 10.0
+  chrom_fwhm: 5.0
+  min_fwhm: 2.0
+  max_fwhm: 20.0
+
+library_search:
+  mz_tolerance_da: 0.01
+  min_cosine: 0.6
+  top_n: 5
