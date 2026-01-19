@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "untargeted-metabolomics"
+version = "0.1.0"
+description = "Starter workflow for LC-MS/MS compound identification"
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+packages = [{ include = "untargeted_metabolomics", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+pyopenms = "*"
+pandas = "^2.0"
+numpy = "^1.24"
+scipy = "^1.10"
+matplotlib = "^3.7"
+seaborn = "^0.13"
+tqdm = "^4.66"
+pyyaml = "^6.0"
+pyarrow = "^14.0"
+plotly = "^5.22"
+nbformat = "^5.10"
+rdkit = "^2025.9.3"
+
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.29"
+
+[build-system]
+requires = ["poetry-core>=1.5.0"]
+build-backend = "poetry.core.masonry.api"

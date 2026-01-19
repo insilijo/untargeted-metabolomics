@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+import fnmatch
+import zipfile
 
-from utils import list_files, load_config, require_files, write_json
+from utils import ensure_dirs, list_files, load_config, require_files, write_json
 
 
 def main() -> None:
     cfg = load_config()
     raw_dir = Path(cfg["paths"]["raw_dir"])
+    interim_dir = Path(cfg["paths"]["interim_dir"])
+    ensure_dirs([interim_dir])
     mix_files = list_files(raw_dir, cfg["inputs"]["mix_glob"])
     blank_files = list_files(raw_dir, cfg["inputs"]["blank_glob"])
     gnps_zip = raw_dir / cfg["inputs"]["gnps_mgf_zip"]
@@ -25,18 +29,44 @@ def main() -> None:
     ok_gnps, missing_gnps = require_files([gnps_zip])
     ok_known, missing_known = require_files([known_masses])
 
+    zip_candidates = sorted(raw_dir.glob("*.zip"))
+    zip_ok = False
+    zip_contents = []
+    mix_pattern = cfg["inputs"]["mix_glob"]
+    blank_pattern = cfg["inputs"]["blank_glob"]
+    gnps_name = cfg["inputs"]["gnps_mgf_zip"]
+    known_name = cfg["inputs"]["known_masses_csv"]
+    if zip_candidates and (missing_mix or missing_blank or missing_gnps or missing_known):
+        for zip_path in zip_candidates:
+            try:
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    names = {Path(n).name for n in zf.namelist()}
+            except zipfile.BadZipFile:
+                continue
+            has_mix = any(fnmatch.fnmatch(name, mix_pattern) for name in names)
+            has_blank = any(fnmatch.fnmatch(name, blank_pattern) for name in names)
+            has_gnps = gnps_name in names
+            has_known = known_name in names
+            if has_mix and has_blank and has_gnps and has_known:
+                zip_ok = True
+                zip_contents = sorted(names)
+                checks["raw_zip"] = str(zip_path)
+                break
+
     status = {
-        "mix_files_ok": ok_mix,
-        "blank_files_ok": ok_blank,
-        "gnps_zip_ok": ok_gnps,
-        "known_masses_ok": ok_known,
+        "mix_files_ok": ok_mix or zip_ok,
+        "blank_files_ok": ok_blank or zip_ok,
+        "gnps_zip_ok": ok_gnps or zip_ok,
+        "known_masses_ok": ok_known or zip_ok,
+        "zip_ok": zip_ok,
+        "zip_contents": zip_contents,
         "missing": missing_mix + missing_blank + missing_gnps + missing_known,
     }
 
-    out_path = Path(cfg["paths"]["interim_dir"]) / "input_check.json"
+    out_path = interim_dir / "input_check.json"
     write_json(out_path, {"checks": checks, "status": status})
 
-    if not all([ok_mix, ok_blank, ok_gnps, ok_known]):
+    if not all([status["mix_files_ok"], status["blank_files_ok"], status["gnps_zip_ok"], status["known_masses_ok"]]):
         missing_msg = "\n".join(status["missing"])
         raise SystemExit(f"Missing required files:\n{missing_msg}")
 

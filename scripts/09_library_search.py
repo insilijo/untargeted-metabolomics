@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
+import sqlite3
 
 import numpy as np
 import pandas as pd
@@ -36,19 +38,28 @@ def cosine_similarity(
 ) -> float:
     if mz_a.size == 0 or mz_b.size == 0:
         return 0.0
-    int_a = normalize(int_a)
-    int_b = normalize(int_b)
+    # Ensure inputs are sorted by m/z for consistent two-pointer matching.
+    order_a = np.argsort(mz_a)
+    order_b = np.argsort(mz_b)
+    mz_a = mz_a[order_a]
+    int_a = normalize(int_a[order_a])
+    mz_b = mz_b[order_b]
+    int_b = normalize(int_b[order_b])
 
     score = 0.0
+    i = 0
     j = 0
-    for i in range(len(mz_a)):
-        mz_i = mz_a[i]
-        while j < len(mz_b) and mz_b[j] < mz_i - mz_tolerance:
-            j += 1
-        if j >= len(mz_b):
-            break
-        if abs(mz_b[j] - mz_i) <= mz_tolerance:
+    # One-to-one peak matching within tolerance.
+    while i < len(mz_a) and j < len(mz_b):
+        diff = mz_a[i] - mz_b[j]
+        if abs(diff) <= mz_tolerance:
             score += int_a[i] * int_b[j]
+            i += 1
+            j += 1
+        elif diff < 0:
+            i += 1
+        else:
+            j += 1
     return float(score)
 
 
@@ -59,17 +70,16 @@ def main() -> None:
     ensure_dirs([processed_dir])
 
     spectra_path = interim_dir / "ms2_spectra.parquet"
-    library_path = interim_dir / "gnps_library.parquet"
     if not spectra_path.exists():
-        raise SystemExit("Missing MS2 spectra parquet. Run 02_extract_ms2.py first.")
-    if not library_path.exists():
-        raise SystemExit("Missing GNPS library parquet. Run 03_build_library_index.py first.")
+        raise SystemExit("Missing MS2 spectra parquet. Run 06_extract_ms2.py first.")
 
     ms2 = pd.read_parquet(spectra_path)
-    library = pd.read_parquet(library_path)
-
-    library["pepmass"] = library["pepmass"].apply(parse_pepmass)
-    library = library.dropna(subset=["pepmass"]).reset_index(drop=True)
+    db_path = interim_dir / cfg["inputs"]["gnps_sqlite"]
+    if not db_path.exists():
+        raise SystemExit("Missing GNPS library sqlite. Run 08_build_library_index.py first.")
+    conn = sqlite3.connect(db_path)
+    adduct_filtered_path = processed_dir / "feature_groups_filtered_adduct.tsv"
+    adduct_filtered = adduct_filtered_path.exists()
 
     mz_tol = cfg["library_search"]["mz_tolerance_da"]
     min_cosine = cfg["library_search"]["min_cosine"]
@@ -80,16 +90,24 @@ def main() -> None:
         prec = row["precursor_mz"]
         if pd.isna(prec):
             continue
-        candidates = library[(library["pepmass"] - prec).abs() <= mz_tol]
-        if candidates.empty:
-            continue
-
         mz_a = np.array(row["mz_array"], dtype=float)
         int_a = np.array(row["intensity_array"], dtype=float)
 
-        for _, lib in candidates.iterrows():
-            mz_b = np.array(lib["mz_array"], dtype=float)
-            int_b = np.array(lib["intensity_array"], dtype=float)
+        cursor = conn.execute(
+            """
+            SELECT title, name, inchikey, pepmass, mz_array, intensity_array
+            FROM spectra
+            WHERE pepmass BETWEEN ? AND ?
+            """,
+            (prec - mz_tol, prec + mz_tol),
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            continue
+
+        for title, name, inchikey, pepmass, mz_json, int_json in rows:
+            mz_b = np.array(json.loads(mz_json), dtype=float)
+            int_b = np.array(json.loads(int_json), dtype=float)
             score = cosine_similarity(mz_a, int_a, mz_b, int_b, mz_tol)
             if score >= min_cosine:
                 hits.append(
@@ -97,10 +115,11 @@ def main() -> None:
                         "source_file": row["source_file"],
                         "rt": row["rt"],
                         "precursor_mz": prec,
-                        "library_title": lib.get("title"),
-                        "library_compound_name": lib.get("name"),
-                        "library_inchikey": lib.get("inchikey"),
-                        "library_pepmass": lib.get("pepmass"),
+                        "library_title": title,
+                        "library_compound_name": name,
+                        "library_inchikey": inchikey,
+                        "library_pepmass": pepmass,
+                        "adduct_filtered": adduct_filtered,
                         "cosine": score,
                     }
                 )
@@ -115,6 +134,7 @@ def main() -> None:
 
     out_path = processed_dir / "library_hits.parquet"
     hits_df.to_parquet(out_path, index=False)
+    conn.close()
     print(f"Wrote library hits to {out_path}")
 
 

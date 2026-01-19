@@ -10,6 +10,7 @@ inputs:
   blank_glob: "BLANK_*.mzML"
   gnps_mgf_zip: "GNPS_SUBSET.mgf.zip"
   known_masses_csv: "KNOWN_MASSES.csv"
+  gnps_sqlite: "gnps_library.sqlite"
 
 ms2_extraction:
   precursor_mz_tolerance_ppm: 10.0
@@ -20,10 +21,45 @@ feature_finding:
   noise_threshold_int: 1000.0
   mass_error_ppm: 10.0
   chrom_fwhm: 5.0
-  min_fwhm: 2.0
-  max_fwhm: 20.0
+  chrom_peak_snr: 3.0
+  min_trace_length: 5.0
+  max_trace_length: -1.0
+
+feature_alignment:
+  mz_tolerance_ppm: 10.0
+  rt_tolerance_sec: 10.0
+  min_replicate_count: 2
+
+blank_subtraction:
+  mz_tolerance_ppm: 10.0
+  rt_tolerance_sec: 10.0
+  max_blank_to_sample_ratio: 0.2
+  min_sample_intensity: 5000.0
+  noise_floor_intensity: 100000.0
+
+ms2_linking:
+  mz_tolerance_ppm: 10.0
+  rt_tolerance_sec: 10.0
+
+adduct_filter:
+  corr_threshold: 0.8
+  rt_tolerance_sec: 10.0
+  mz_tolerance_da: 0.01
+  adduct_deltas:
+    - label: C13 isotope
+      delta_mz: 1.003355
+    - label: Na-H
+      delta_mz: 21.981943
+    - label: K-H
+      delta_mz: 37.955882
+    - label: NH4-H
+      delta_mz: 17.026549
 
 library_search:
   mz_tolerance_da: 0.01
   min_cosine: 0.6
   top_n: 5
+
+spec2mol:
+  conda_env: spec2mol
+  conda_exe: conda

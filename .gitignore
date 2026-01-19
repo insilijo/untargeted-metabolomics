@@ -14,3 +14,4 @@ figures/*
 !figures/.gitkeep
 notebooks/*
 !notebooks/.gitkeep
+.venv*
