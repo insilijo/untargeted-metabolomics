@@ -8,10 +8,12 @@ from utils import ensure_dirs, load_config
 
 
 def ppm_to_da(mz: float, ppm: float) -> float:
+    # Convert a ppm tolerance into Da at a given m/z.
     return mz * ppm * 1e-6
 
 
 def sample_type_from_name(name: str) -> str:
+    # Infer sample type (mix/blank) from filename.
     upper = name.upper()
     if upper.startswith("MIX"):
         return "mix"
@@ -21,6 +23,7 @@ def sample_type_from_name(name: str) -> str:
 
 
 def assign_groups(df: pd.DataFrame, mz_tol_ppm: float, rt_tol_sec: float) -> pd.Series:
+    # Greedily group features by m/z and RT tolerances.
     df_sorted = df.sort_values(["mz", "rt"]).copy()
     group_ids = [-1] * len(df_sorted)
     groups = []
@@ -52,6 +55,7 @@ def assign_groups(df: pd.DataFrame, mz_tol_ppm: float, rt_tol_sec: float) -> pd.
 
 
 def main() -> None:
+    # Assign groups and write long/summary/wide alignment tables.
     cfg = load_config()
     interim_dir = Path(cfg["paths"]["interim_dir"])
     ensure_dirs([interim_dir])

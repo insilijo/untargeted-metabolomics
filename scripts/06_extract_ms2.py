@@ -9,6 +9,7 @@ from utils import ensure_dirs, list_files, load_config
 
 
 def extract_ms2_spectra(mzml_path: Path, min_ms2_peaks: int, min_intensity: float) -> list[dict]:
+    # Extract MS2 spectra from mzML with intensity/peak filters.
     exp = oms.MSExperiment()
     oms.MzMLFile().load(str(mzml_path), exp)
 
@@ -36,6 +37,7 @@ def extract_ms2_spectra(mzml_path: Path, min_ms2_peaks: int, min_intensity: floa
 
 
 def main() -> None:
+    # Run MS2 extraction for all mzML files and write parquet.
     cfg = load_config()
     raw_dir = Path(cfg["paths"]["raw_dir"])
     interim_dir = Path(cfg["paths"]["interim_dir"])

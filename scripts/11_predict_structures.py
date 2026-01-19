@@ -58,6 +58,7 @@ except ModuleNotFoundError:
 
 
 def write_mgf(path: Path, spectra: list[dict]) -> None:
+    # Write a list of spectra to MGF format.
     with open(path, "w", encoding="utf-8") as handle:
         for spec in spectra:
             handle.write("BEGIN IONS\n")
@@ -70,6 +71,7 @@ def write_mgf(path: Path, spectra: list[dict]) -> None:
 
 
 def write_spec2mol_csv(path: Path, mz_array, intensity_array) -> None:
+    # Write a Spec2Mol input CSV for one spectrum.
     with open(path, "w", encoding="utf-8") as handle:
         mz_list = list(mz_array)
         intensity_list = list(intensity_array)
@@ -78,6 +80,7 @@ def write_spec2mol_csv(path: Path, mz_array, intensity_array) -> None:
 
 
 def fetch_pubchem_smiles(inchikey: str, cache: dict[str, str]) -> str:
+    # Fetch PubChem SMILES by InChIKey with caching.
     if not inchikey:
         return ""
     if inchikey in cache:
@@ -103,6 +106,7 @@ def fetch_pubchem_smiles(inchikey: str, cache: dict[str, str]) -> str:
 
 
 def fetch_pubchem_smiles_by_name(name: str, cache: dict[str, str]) -> str:
+    # Fetch PubChem SMILES by name with caching.
     if not name:
         return ""
     candidates = [name]
@@ -138,6 +142,7 @@ def fetch_pubchem_smiles_by_name(name: str, cache: dict[str, str]) -> str:
 
 
 def select_targets(
+    # Select top unannotated features for Spec2Mol.
     features: pd.DataFrame,
     hits: pd.DataFrame,
     mz_tol: float,
@@ -158,6 +163,7 @@ def select_targets(
 
 
 def main() -> None:
+    # Run Spec2Mol workflow and merge annotations.
     import argparse
 
     parser = argparse.ArgumentParser(description="Spec2Mol export + prediction.")

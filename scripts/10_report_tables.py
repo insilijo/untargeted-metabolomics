@@ -10,6 +10,7 @@ from utils import ensure_dirs, load_config
 
 
 def normalize(intensity: np.ndarray) -> np.ndarray:
+    # Normalize a spectrum intensity vector.
     total = np.linalg.norm(intensity)
     if total == 0:
         return intensity
@@ -17,6 +18,7 @@ def normalize(intensity: np.ndarray) -> np.ndarray:
 
 
 def cosine_similarity(
+    # Compute cosine similarity for spectra.
     mz_a: np.ndarray,
     int_a: np.ndarray,
     mz_b: np.ndarray,
@@ -49,6 +51,7 @@ def cosine_similarity(
 
 
 def knee_point_rank(intensities: np.ndarray, min_n: int = 10) -> int:
+    # Find an elbow rank on the intensity curve.
     if intensities.size == 0:
         return min_n
     x = np.arange(1, len(intensities) + 1, dtype=float)
@@ -61,6 +64,7 @@ def knee_point_rank(intensities: np.ndarray, min_n: int = 10) -> int:
 
 
 def main() -> None:
+    # Generate report tables and top candidates.
     cfg = load_config()
     processed_dir = Path(cfg["paths"]["processed_dir"])
     interim_dir = Path(cfg["paths"]["interim_dir"])

@@ -9,10 +9,12 @@ from utils import ensure_dirs, load_config
 
 
 def ppm_to_da(mz: float, ppm: float) -> float:
+    # Convert ppm tolerance to Da for a given m/z.
     return mz * ppm * 1e-6
 
 
 def main() -> None:
+    # Link MS2 spectra to feature groups by m/z/RT windows.
     cfg = load_config()
     interim_dir = Path(cfg["paths"]["interim_dir"])
     ensure_dirs([interim_dir])

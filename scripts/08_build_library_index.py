@@ -11,6 +11,7 @@ from utils import ensure_dirs, load_config
 
 
 def parse_pepmass(value: str | float | None) -> float | None:
+    # Parse PEPMASS values to float if present.
     if value is None:
         return None
     if isinstance(value, float):
@@ -23,6 +24,7 @@ def parse_pepmass(value: str | float | None) -> float | None:
 
 
 def parse_mgf(handle: io.TextIOBase) -> Iterable[Dict]:
+    # Stream-parse MGF records into metadata + peak arrays.
     current: Dict[str, object] = {}
     mzs: list[float] = []
     intensities: list[float] = []
@@ -62,6 +64,7 @@ def parse_mgf(handle: io.TextIOBase) -> Iterable[Dict]:
 
 
 def init_db(path: Path) -> sqlite3.Connection:
+    # Create the GNPS sqlite schema if needed.
     conn = sqlite3.connect(path)
     conn.execute(
         """
@@ -82,6 +85,7 @@ def init_db(path: Path) -> sqlite3.Connection:
 
 
 def pick_field(spec: Dict, *keys: str) -> str | None:
+    # Pick the first available metadata field from a spec.
     for key in keys:
         value = spec.get(key)
         if value not in (None, ""):
@@ -90,6 +94,7 @@ def pick_field(spec: Dict, *keys: str) -> str | None:
 
 
 def insert_batch(conn: sqlite3.Connection, batch: list[Dict]) -> None:
+    # Bulk insert spectra records into sqlite.
     rows = []
     for spec in batch:
         pepmass = parse_pepmass(spec.get("pepmass"))
@@ -115,6 +120,7 @@ def insert_batch(conn: sqlite3.Connection, batch: list[Dict]) -> None:
 
 
 def main() -> None:
+    # Build the GNPS sqlite index from the MGF subset.
     cfg = load_config()
     raw_dir = Path(cfg["paths"]["raw_dir"])
     interim_dir = Path(cfg["paths"]["interim_dir"])

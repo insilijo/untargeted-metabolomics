@@ -17,6 +17,7 @@ KNOWN_ADDUCTS = {
 
 
 def load_known_masses(cfg: dict) -> list[float]:
+    # Load known monoisotopic masses from CSV.
     raw_dir = Path(cfg["paths"]["raw_dir"])
     known_name = cfg["inputs"]["known_masses_csv"]
     path = raw_dir / known_name
@@ -33,6 +34,7 @@ def load_known_masses(cfg: dict) -> list[float]:
 
 
 def match_known(mz: float, masses: list[float], ppm: float) -> tuple[bool, float | None, str | None, float | None]:
+    # Check if an m/z matches any known mass/adduct within ppm.
     if not masses:
         return False, None, None, None
     best = None
@@ -49,6 +51,7 @@ def match_known(mz: float, masses: list[float], ppm: float) -> tuple[bool, float
 
 
 def main() -> None:
+    # Apply blank/noise filters and keep known-mass matches.
     cfg = load_config()
     interim_dir = Path(cfg["paths"]["interim_dir"])
     processed_dir = Path(cfg["paths"]["processed_dir"])

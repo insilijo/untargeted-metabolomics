@@ -11,6 +11,7 @@ from utils import ensure_dirs, load_config
 
 
 def parse_pepmass(value: str | float | None) -> float | None:
+    # Parse PEPMASS values to float if present.
     if value is None:
         return None
     if isinstance(value, float):
@@ -23,6 +24,7 @@ def parse_pepmass(value: str | float | None) -> float | None:
 
 
 def normalize(intensity: np.ndarray) -> np.ndarray:
+    # Normalize a spectrum intensity vector.
     total = np.linalg.norm(intensity)
     if total == 0:
         return intensity
@@ -30,6 +32,7 @@ def normalize(intensity: np.ndarray) -> np.ndarray:
 
 
 def cosine_similarity(
+    # Compute cosine similarity with an m/z tolerance.
     mz_a: np.ndarray,
     int_a: np.ndarray,
     mz_b: np.ndarray,
@@ -64,6 +67,7 @@ def cosine_similarity(
 
 
 def main() -> None:
+    # Search the GNPS index and write per-spectrum hits.
     cfg = load_config()
     interim_dir = Path(cfg["paths"]["interim_dir"])
     processed_dir = Path(cfg["paths"]["processed_dir"])

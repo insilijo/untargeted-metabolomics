@@ -9,6 +9,7 @@ from utils import ensure_dirs, load_config
 
 
 def pearson_corr(a: np.ndarray, b: np.ndarray) -> float:
+    # Compute Pearson correlation with guard rails.
     if a.size != b.size:
         return np.nan
     if np.std(a) == 0 or np.std(b) == 0:
@@ -17,6 +18,7 @@ def pearson_corr(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def main() -> None:
+    # Remove adduct/isotope duplicates based on m/z, RT, and correlation.
     cfg = load_config()
     interim_dir = Path(cfg["paths"]["interim_dir"])
     processed_dir = Path(cfg["paths"]["processed_dir"])

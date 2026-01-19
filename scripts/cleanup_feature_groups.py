@@ -7,6 +7,7 @@ import pandas as pd
 
 
 def main() -> None:
+    # Drop duplicate merge columns and write cleaned output.
     path = Path("data/processed/feature_groups_filtered_adduct.tsv")
     if not path.exists():
         raise SystemExit(f"Missing {path}")

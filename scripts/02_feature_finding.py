@@ -9,11 +9,13 @@ from utils import ensure_dirs, list_files, load_config
 
 
 def set_param_if_exists(params: oms.Param, key: str, value) -> None:
+    # Set a pyopenms Param value only if the key exists.
     if params.exists(key):
         params.setValue(key, value)
 
 
 def run_feature_finding(mzml_path: Path, cfg: dict) -> tuple[oms.FeatureMap, list[oms.Kernel_MassTrace]]:
+    # Load mzML, centroid MS1, detect traces, and find features.
     exp = oms.MSExperiment()
     oms.MzMLFile().load(str(mzml_path), exp)
     exp.sortSpectra(True)
@@ -60,6 +62,7 @@ def run_feature_finding(mzml_path: Path, cfg: dict) -> tuple[oms.FeatureMap, lis
 
 
 def feature_map_to_df(
+    # Convert a FeatureMap into a tidy DataFrame with metadata.
     fmap: oms.FeatureMap, traces: list[oms.Kernel_MassTrace], source_file: str
 ) -> pd.DataFrame:
     records = []
@@ -107,6 +110,7 @@ def feature_map_to_df(
 
 
 def main() -> None:
+    # Run feature finding across all mzML files and save outputs.
     cfg = load_config()
     raw_dir = Path(cfg["paths"]["raw_dir"])
     interim_dir = Path(cfg["paths"]["interim_dir"])

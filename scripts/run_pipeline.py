@@ -22,6 +22,7 @@ STEPS = [
 
 
 def normalize_step(value: str) -> str:
+    # Normalize step identifiers to two-digit prefixes.
     value = value.strip()
     if value.isdigit():
         value = value.zfill(2)
@@ -33,6 +34,7 @@ def normalize_step(value: str) -> str:
 
 
 def parse_args() -> argparse.Namespace:
+    # Parse CLI arguments for pipeline execution.
     parser = argparse.ArgumentParser(description="Run pipeline steps with start/end bounds.")
     parser.add_argument("--start", default=STEPS[0], help="First step to run.")
     parser.add_argument("--end", default=STEPS[-1], help="Last step to run.")
@@ -45,6 +47,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    # Run pipeline steps in order with start/end/skip controls.
     args = parse_args()
     args.start = normalize_step(args.start)
     args.end = normalize_step(args.end)

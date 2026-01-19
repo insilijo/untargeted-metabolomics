@@ -8,6 +8,7 @@ from utils import ensure_dirs, list_files, load_config, require_files, write_jso
 
 
 def main() -> None:
+    # Validate required inputs and write an input check summary.
     cfg = load_config()
     raw_dir = Path(cfg["paths"]["raw_dir"])
     interim_dir = Path(cfg["paths"]["interim_dir"])
