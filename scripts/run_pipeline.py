@@ -18,6 +18,7 @@ STEPS = [
     "09_library_search",
     "10_report_tables",
     "11_predict_structures",
+    "12_package_results",
 ]
 
 

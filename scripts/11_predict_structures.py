@@ -368,6 +368,20 @@ def main() -> None:
             np.where(features["library_cosine"].notna(), "ms2", "ms1"),
             "none",
         )
+    else:
+        features["library_match_type"] = "none"
+
+    # Ensure MS1 columns exist even if MS1 matching didn't run.
+    for col in [
+        "ms1_library_name",
+        "ms1_library_inchikey",
+        "ms1_library_title",
+        "ms1_library_pepmass",
+        "ms1_library_delta_ppm",
+        "ms1_library_smiles",
+    ]:
+        if col not in features.columns:
+            features[col] = "" if col.endswith("name") or col.endswith("title") or col.endswith("smiles") else np.nan
 
     features_path.parent.mkdir(parents=True, exist_ok=True)
     # Clean any accidental merge suffix columns from prior runs.
