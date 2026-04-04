@@ -15,3 +15,8 @@ figures/*
 notebooks/*
 !notebooks/.gitkeep
 .venv*
+
+data/HOC/
+
+query_errors.log
+.codex
