@@ -42,7 +42,7 @@ def require_files(files: Iterable[Path]) -> Tuple[bool, List[str]]:
 # ---------------------------------------------------------------------------
 
 _SAMPLE_TYPES  = {"sample", "mix", "qc"}
-_BLANK_TYPES   = {"blank", "process_blank", "solvent_blank", "method_blank"}
+_BLANK_TYPES   = {"blank", "process_blank", "solvent_blank", "method_blank", "pss"}
 _IGNORE_TYPES  = {"reference", "standard", "ignore", "skip"}
 
 # Columns recognised as sample_type (case-insensitive)
@@ -192,7 +192,7 @@ def _norm_type(value: str) -> str:
     if v in _SAMPLE_TYPES:
         return "sample" if v == "mix" else v
     if v in _BLANK_TYPES:
-        return "blank"
+        return v  # preserve "pss", "blank" etc. for downstream filtering
     if v in _IGNORE_TYPES:
         return "other"
     return "sample"  # default unknown to sample

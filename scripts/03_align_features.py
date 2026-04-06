@@ -84,18 +84,21 @@ def main() -> None:
         .reset_index()
     )
 
+    is_sample = df["sample_type"].isin(["sample", "mix", "qc"])
+    is_blank  = df["sample_type"].isin(["blank", "pss"])
+
     mix_stats = (
-        df[df["sample_type"] == "mix"]
+        df[is_sample]
         .groupby("group_id")["intensity"]
         .agg(max_mix_intensity="max", mean_mix_intensity="mean")
     )
     blank_stats = (
-        df[df["sample_type"] == "blank"]
+        df[is_blank]
         .groupby("group_id")["intensity"]
         .agg(max_blank_intensity="max", mean_blank_intensity="mean")
     )
-    mix_files = df[df["sample_type"] == "mix"].groupby("group_id")["source_file"].nunique()
-    blank_files = df[df["sample_type"] == "blank"].groupby("group_id")["source_file"].nunique()
+    mix_files   = df[is_sample].groupby("group_id")["source_file"].nunique()
+    blank_files = df[is_blank].groupby("group_id")["source_file"].nunique()
 
     summary = summary.join(mix_stats, on="group_id").join(blank_stats, on="group_id")
     summary["mix_file_count"] = summary["group_id"].map(mix_files).fillna(0).astype(int)
