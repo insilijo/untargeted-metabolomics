@@ -12,7 +12,7 @@ inputs:
   #   Required column : filename (mzML stem or full name)
   #   Required column : sample_type  (sample | blank | qc | other)
   #   Optional columns: batch, subject_id, group, timepoint, ...
-  gnps_mgf_zip: "GNPS_SUBSET.mgf.zip"
+  gnps_mgf: "ALL_GNPS.mgf"
   known_masses_csv: "KNOWN_MASSES.csv"
   gnps_sqlite: "gnps_library.sqlite"
 
