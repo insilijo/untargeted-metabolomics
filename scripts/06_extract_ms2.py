@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pyopenms as oms
 
-from utils import ensure_dirs, list_files, load_config
+from utils import ensure_dirs, load_config, load_sample_metadata
 
 
 def extract_ms2_spectra(mzml_path: Path, min_ms2_peaks: int, min_intensity: float) -> list[dict]:
@@ -43,15 +43,14 @@ def main() -> None:
     interim_dir = Path(cfg["paths"]["interim_dir"])
     ensure_dirs([interim_dir])
 
-    mix_files = list_files(raw_dir, cfg["inputs"]["mix_glob"])
-    blank_files = list_files(raw_dir, cfg["inputs"]["blank_glob"])
+    (sample_files, blank_files), _ = load_sample_metadata(raw_dir, interim_dir, cfg)
 
     ms2_cfg = cfg["ms2_extraction"]
     min_ms2_peaks = ms2_cfg["min_ms2_peaks"]
     min_intensity = ms2_cfg["min_intensity"]
 
     records = []
-    for mzml_path in mix_files + blank_files:
+    for mzml_path in sample_files + blank_files:
         records.extend(extract_ms2_spectra(mzml_path, min_ms2_peaks, min_intensity))
 
     if not records:

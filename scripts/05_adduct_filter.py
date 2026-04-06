@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from utils import ensure_dirs, load_config
+from utils import ensure_dirs, load_config, load_sample_metadata
 
 
 def pearson_corr(a: np.ndarray, b: np.ndarray) -> float:
@@ -20,6 +20,7 @@ def pearson_corr(a: np.ndarray, b: np.ndarray) -> float:
 def main() -> None:
     # Remove adduct/isotope duplicates based on m/z, RT, and correlation.
     cfg = load_config()
+    raw_dir = Path(cfg["paths"]["raw_dir"])
     interim_dir = Path(cfg["paths"]["interim_dir"])
     processed_dir = Path(cfg["paths"]["processed_dir"])
     ensure_dirs([processed_dir])
@@ -37,9 +38,19 @@ def main() -> None:
     groups = pd.read_csv(groups_path, sep="\t")
     wide = pd.read_csv(wide_path, sep="\t")
 
-    mix_cols = [c for c in wide.columns if c.startswith("MIX_")]
-    if not mix_cols:
-        raise SystemExit("No MIX columns found in feature_groups_wide.tsv")
+    # Identify sample columns from metadata (not filename prefix)
+    (sample_files, _), _ = load_sample_metadata(raw_dir, interim_dir, cfg)
+    sample_names = {p.name for p in sample_files}
+    sample_cols = [c for c in wide.columns if c in sample_names]
+    if not sample_cols:
+        # Fallback: all non-group_id columns are sample columns
+        sample_cols = [c for c in wide.columns if c != "group_id"]
+    if not sample_cols:
+        raise SystemExit("No sample columns found in feature_groups_wide.tsv")
+
+    n_samples = len(sample_files) if sample_files else len(sample_cols)
+    min_reps = int(cfg["feature_alignment"]["min_replicate_count"])
+    required = min(n_samples, min_reps)
 
     merged = filtered.merge(
         groups[["group_id", "mz_mean", "rt_mean", "max_mix_intensity", "mix_file_count"]],
@@ -48,16 +59,18 @@ def main() -> None:
         suffixes=("", "_group"),
     ).merge(wide, on="group_id", how="left")
 
-    # Only keep features seen in all mix replicates, unless marked as known.
+    # Keep features seen in at least `required` sample replicates, or known matches.
     if "known_match" in merged.columns:
-        merged = merged[(merged["mix_file_count"] == 3) | (merged["known_match"] == True)].reset_index(drop=True)
+        merged = merged[
+            (merged["mix_file_count"] >= required) | (merged["known_match"] == True)
+        ].reset_index(drop=True)
     else:
-        merged = merged[merged["mix_file_count"] == 3].reset_index(drop=True)
+        merged = merged[merged["mix_file_count"] >= required].reset_index(drop=True)
 
     if merged.empty:
-        raise SystemExit("No features with mix_file_count=3 to filter.")
+        raise SystemExit(f"No features with mix_file_count>={required} to filter.")
 
-    arrays = merged[mix_cols].to_numpy(dtype=float)
+    arrays = merged[sample_cols].to_numpy(dtype=float)
 
     adduct_cfg = cfg["adduct_filter"]
     corr_thresh = float(adduct_cfg["corr_threshold"])

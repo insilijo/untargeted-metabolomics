@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from utils import ensure_dirs, load_config
+from utils import ensure_dirs, load_config, load_sample_metadata
 
 
 KNOWN_ADDUCTS = {
@@ -53,6 +53,7 @@ def match_known(mz: float, masses: list[float], ppm: float) -> tuple[bool, float
 def main() -> None:
     # Apply blank/noise filters and keep known-mass matches.
     cfg = load_config()
+    raw_dir = Path(cfg["paths"]["raw_dir"])
     interim_dir = Path(cfg["paths"]["interim_dir"])
     processed_dir = Path(cfg["paths"]["processed_dir"])
     ensure_dirs([processed_dir])
@@ -68,9 +69,12 @@ def main() -> None:
     min_sample_intensity = float(blank_cfg["min_sample_intensity"])
     max_ratio = float(blank_cfg["max_blank_to_sample_ratio"])
     min_reps = int(align_cfg["min_replicate_count"])
-    required_mix = 3
     noise_floor = float(blank_cfg.get("noise_floor_intensity", 0.0))
     mz_tolerance_ppm = float(blank_cfg.get("mz_tolerance_ppm", 10.0))
+
+    # Determine required replicate count from actual sample files
+    (sample_files, _), _ = load_sample_metadata(raw_dir, interim_dir, cfg)
+    required_mix = min(len(sample_files), min_reps) if sample_files else min_reps
 
     known_masses = load_known_masses(cfg)
 

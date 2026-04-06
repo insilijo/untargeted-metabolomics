@@ -4,22 +4,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from utils import ensure_dirs, load_config
+from utils import ensure_dirs, load_config, load_sample_metadata, _infer_type_from_name
 
 
 def ppm_to_da(mz: float, ppm: float) -> float:
     # Convert a ppm tolerance into Da at a given m/z.
     return mz * ppm * 1e-6
-
-
-def sample_type_from_name(name: str) -> str:
-    # Infer sample type (mix/blank) from filename.
-    upper = name.upper()
-    if upper.startswith("MIX"):
-        return "mix"
-    if upper.startswith("BLANK"):
-        return "blank"
-    return "unknown"
 
 
 def assign_groups(df: pd.DataFrame, mz_tol_ppm: float, rt_tol_sec: float) -> pd.Series:
@@ -57,6 +47,7 @@ def assign_groups(df: pd.DataFrame, mz_tol_ppm: float, rt_tol_sec: float) -> pd.
 def main() -> None:
     # Assign groups and write long/summary/wide alignment tables.
     cfg = load_config()
+    raw_dir = Path(cfg["paths"]["raw_dir"])
     interim_dir = Path(cfg["paths"]["interim_dir"])
     ensure_dirs([interim_dir])
 
@@ -65,7 +56,16 @@ def main() -> None:
         raise SystemExit("Missing features.tsv. Run 02_feature_finding.py first.")
 
     df = pd.read_csv(features_path, sep="\t")
-    df["sample_type"] = df["source_file"].apply(sample_type_from_name)
+
+    # Build filename → sample_type lookup from metadata (falls back to name inference)
+    _, meta = load_sample_metadata(raw_dir, interim_dir, cfg)
+    if meta is not None:
+        type_map = dict(zip(meta["filename"], meta["sample_type"]))
+        df["sample_type"] = df["source_file"].map(type_map).fillna(
+            df["source_file"].apply(_infer_type_from_name)
+        )
+    else:
+        df["sample_type"] = df["source_file"].apply(_infer_type_from_name)
 
     align_cfg = cfg["feature_alignment"]
     df["group_id"] = assign_groups(df, align_cfg["mz_tolerance_ppm"], align_cfg["rt_tolerance_sec"])

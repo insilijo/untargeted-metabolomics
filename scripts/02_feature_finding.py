@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pyopenms as oms
 
-from utils import ensure_dirs, list_files, load_config
+from utils import ensure_dirs, load_config, load_sample_metadata
 
 
 def set_param_if_exists(params: oms.Param, key: str, value) -> None:
@@ -116,9 +116,8 @@ def main() -> None:
     interim_dir = Path(cfg["paths"]["interim_dir"])
     ensure_dirs([interim_dir])
 
-    mix_files = list_files(raw_dir, cfg["inputs"]["mix_glob"])
-    blank_files = list_files(raw_dir, cfg["inputs"]["blank_glob"])
-    files = mix_files + blank_files
+    (sample_files, blank_files), _ = load_sample_metadata(raw_dir, interim_dir, cfg)
+    files = sample_files + blank_files
 
     if not files:
         raise SystemExit("No mzML files found for feature finding.")

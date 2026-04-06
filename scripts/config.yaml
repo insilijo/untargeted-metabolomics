@@ -6,8 +6,12 @@ paths:
   reports_dir: reports
 
 inputs:
-  mix_glob: "MIX_*.mzML"
-  blank_glob: "BLANK_*.mzML"
+  mix_glob: "MIX_*.mzML"       # legacy fallback when no sample_metadata sheet
+  blank_glob: "BLANK_*.mzML"   # legacy fallback when no sample_metadata sheet
+  sample_metadata: data/raw/sample_metadata.csv
+  #   Required column : filename (mzML stem or full name)
+  #   Required column : sample_type  (sample | blank | qc | other)
+  #   Optional columns: batch, subject_id, group, timepoint, ...
   gnps_mgf_zip: "GNPS_SUBSET.mgf.zip"
   known_masses_csv: "KNOWN_MASSES.csv"
   gnps_sqlite: "gnps_library.sqlite"

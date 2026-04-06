@@ -18,16 +18,34 @@ figures/           figures for reports
 
 ### mzML files
 
-Place sample and blank mzML files in `data/raw/`, named with the prefixes the config expects:
+Place mzML files in `data/raw/` (any filenames), or drop a `.zip` of mzMLs there — step 01 extracts them automatically.
 
-```
-data/raw/MIX_01.mzML
-data/raw/MIX_02.mzML
-data/raw/BLANK_01.mzML
+Sample vs blank assignment uses the first available source:
+
+1. **`data/raw/sample_metadata.csv`** — explicit sheet (recommended for real data)
+2. **Filename inference** — files containing `blank`, `blk`, `cmtrx` → blank; everything else → sample
+3. **Legacy globs** — `MIX_*.mzML` / `BLANK_*.mzML` if no metadata sheet and no zip
+
+#### Sample metadata sheet
+
+```csv
+filename,sample_type,batch,subject_id
+COLU-00965.mzML,sample,1,P001
+COLU-00966.mzML,sample,1,P002
+CMTRX-94927.mzML,blank,1,
 ```
 
-The glob patterns (`MIX_*.mzML`, `BLANK_*.mzML`) are configurable in `scripts/config.yaml`.
-You can also bundle everything into a single `.zip` in `data/raw/`; step 01 will accept it.
+| Column | Values | Notes |
+|---|---|---|
+| `filename` | `*.mzML` | Stem or full name both accepted |
+| `sample_type` | `sample`, `blank`, `qc`, `other` | **Required** |
+| `batch`, `subject_id`, … | anything | Passed through to outputs |
+
+Point to it in `scripts/config.yaml`:
+```yaml
+inputs:
+  sample_metadata: sample_metadata.csv
+```
 
 ### Spectral library (optional)
 
