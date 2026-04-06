@@ -30,6 +30,14 @@ def main() -> None:
     ok_gnps, missing_gnps = require_files([gnps_zip])
     ok_known, missing_known = require_files([known_masses])
 
+    # GNPS library and KNOWN_MASSES are optional when an annotation CSV is supplied
+    has_annotation_csv = bool(cfg.get("squid", {}).get("annotation_csv"))
+    if has_annotation_csv:
+        ok_gnps = ok_gnps or True
+        missing_gnps = []
+        ok_known = ok_known or True
+        missing_known = []
+
     zip_candidates = sorted(raw_dir.glob("*.zip"))
     zip_ok = False
     zip_contents = []
