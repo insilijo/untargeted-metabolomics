@@ -182,7 +182,8 @@ def main() -> None:
     spectra_path = interim_dir / "ms2_spectra.parquet"
 
     if not top_candidates_path.exists():
-        raise SystemExit("Missing top_candidates.csv. Run 10_report_tables.py first.")
+        print("No top_candidates.csv found — no library hits to process. Skipping structure prediction.")
+        return
     if not features_path.exists() or not hits_path.exists():
         raise SystemExit("Missing adduct-filtered features or library hits.")
     if not links_path.exists() or not spectra_path.exists():

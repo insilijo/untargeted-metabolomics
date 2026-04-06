@@ -37,7 +37,7 @@ from utils import ensure_dirs, load_config
 # 3 = Bronze (community, less curated), 10 = third-party (treat as Bronze).
 GOLD   = {"1"}
 SILVER = {"2"}
-BRONZE = {"3", "10", ""}          # empty = field absent → treat conservatively
+BRONZE = {"3", "10"}              # field absent (empty) → treat as Silver
 
 MIN_PEAKS_GOLD_SILVER = 5         # minimum fragment ions for Gold/Silver
 MIN_PEAKS_BRONZE      = 8         # stricter threshold for Bronze
