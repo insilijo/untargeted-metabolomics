@@ -109,7 +109,7 @@ def main() -> None:
 
     # ── Optional inputs (GNPS / known masses) ─────────────────────────────────
     has_annotation_csv = bool((cfg.get("squid") or {}).get("annotation_csv"))
-    gnps_zip     = raw_dir / cfg["inputs"]["gnps_mgf_zip"]
+    gnps_zip     = raw_dir / cfg["inputs"]["gnps_mgf"]
     known_masses = raw_dir / cfg["inputs"]["known_masses_csv"]
     gnps_ok      = gnps_zip.exists() or has_annotation_csv
     known_ok     = known_masses.exists() or has_annotation_csv
