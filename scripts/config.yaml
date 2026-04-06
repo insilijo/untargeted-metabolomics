@@ -63,3 +63,17 @@ library_search:
 spec2mol:
   conda_env: spec2mol
   conda_exe: conda
+
+squid:
+  # Path to SQuID-InC root (overrides SQUID_INC_ROOT env var)
+  # squid_root: ~/SQuID-INC
+  anchor_set: results/anchors_balanced.csv   # relative to squid_root
+  graph_dir: data/processed/graph/ready      # relative to squid_root
+  min_cosine: 0.7          # minimum library match cosine to use as ground truth
+  mz_tolerance_da: 0.01
+  leiden_resolution: 1.0
+  cross_community_damping: 0.5
+  annotation_csv: data/raw/metabolon_annotations.csv
+  #   Required column : mz (or mass / precursor_mz)
+  #   Optional columns: rt, inchikey, smiles, name, ccs, ms2, confidence
+  #   MS2 format      : [[mz,int],...] JSON  or  "mz:int;mz:int"  or  interleaved flat

@@ -20,6 +20,7 @@ pyarrow = "^14.0"
 plotly = "^5.22"
 nbformat = "^5.10"
 rdkit = "^2025.9.3"
+openpyxl = "^3.1.5"
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.29"

@@ -19,6 +19,7 @@ STEPS = [
     "10_report_tables",
     "11_predict_structures",
     "12_package_results",
+    "13_squid_anchor_localization",
 ]
 
 
