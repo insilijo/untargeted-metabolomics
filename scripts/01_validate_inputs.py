@@ -54,6 +54,38 @@ def main() -> None:
                 checks["raw_zip"] = str(zip_path)
                 break
 
+    # ── mzML-only zip: extract mzML files directly into raw_dir ──────────────
+    # Handles a zip that contains only mzML files (named MIX_*.mzML / BLANK_*.mzML).
+    # Files are extracted in-place; existing files are not overwritten.
+    if not zip_ok and (missing_mix or missing_blank):
+        for zip_path in zip_candidates:
+            try:
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    mzml_members = [
+                        n for n in zf.namelist()
+                        if Path(n).suffix.lower() == ".mzml"
+                        and not Path(n).name.startswith("._")
+                    ]
+                    if not mzml_members:
+                        continue
+                    extracted = []
+                    for member in mzml_members:
+                        dest = raw_dir / Path(member).name
+                        if not dest.exists():
+                            with zf.open(member) as src, open(dest, "wb") as dst:
+                                dst.write(src.read())
+                        extracted.append(dest.name)
+                    print(f"Extracted {len(extracted)} mzML files from {zip_path.name}")
+                    checks["mzml_zip"] = str(zip_path)
+                    checks["mzml_zip_extracted"] = extracted
+            except zipfile.BadZipFile:
+                continue
+        # Re-check after extraction
+        mix_files = list_files(raw_dir, mix_pattern)
+        blank_files = list_files(raw_dir, cfg["inputs"]["blank_glob"])
+        ok_mix, missing_mix = require_files(mix_files)
+        ok_blank, missing_blank = require_files(blank_files)
+
     status = {
         "mix_files_ok": ok_mix or zip_ok,
         "blank_files_ok": ok_blank or zip_ok,
