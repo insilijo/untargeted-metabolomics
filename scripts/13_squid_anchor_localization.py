@@ -106,9 +106,11 @@ def _load_ms2_lookup(pipeline_dir: Path) -> dict[str, dict]:
     for _, row in df.iterrows():
         key = (row.get("source_file", ""), round(float(row.get("precursor_mz") or 0), 3))
         if key not in lookup:
+            mz_arr = row.get("mz_array")
+            int_arr = row.get("intensity_array")
             lookup[key] = {
-                "mz_array": list(row.get("mz_array") or []),
-                "intensity_array": list(row.get("intensity_array") or []),
+                "mz_array": list(mz_arr) if mz_arr is not None and len(mz_arr) > 0 else [],
+                "intensity_array": list(int_arr) if int_arr is not None and len(int_arr) > 0 else [],
             }
     return lookup
 
