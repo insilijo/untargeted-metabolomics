@@ -71,8 +71,8 @@ spec2mol:
 squid:
   # Path to SQuID-InC root (overrides SQUID_INC_ROOT env var)
   # squid_root: ~/SQuID-INC
-  anchor_set: results/anchors_balanced.csv   # relative to squid_root
-  graph_dir: data/processed/graph/ready      # relative to squid_root
+  anchor_set: results/anchors_v1.csv          # relative to squid_root
+  graph_dir: data/processed/graph/tranches   # relative to squid_root
   min_cosine: 0.7          # minimum library match cosine to use as ground truth
   mz_tolerance_da: 0.01
   leiden_resolution: 1.0

@@ -68,6 +68,7 @@ squid_root = _squid_root()
 if str(squid_root) not in sys.path:
     sys.path.insert(0, str(squid_root))
 
+from squid_inc.paths import data_path as squid_data_path, results_path as squid_results_path, storage_root as squid_storage_root
 from squid_inc.benchmark.calibrate import CoordinateCalibrator, build_calibration_points
 from squid_inc.benchmark.coverage import (
     compute_coverage,
@@ -139,21 +140,39 @@ def main() -> None:
     leiden_res = float(squid_cfg.get("leiden_resolution", 1.0))
     damping = float(squid_cfg.get("cross_community_damping", 0.5))
 
+    # ── Resolve paths via squid_inc.paths (respects SQUID_DATA_ROOT) ────────────
+    def _resolve(rel_or_abs: str, default_path: Path) -> Path:
+        """Absolute path wins; relative paths resolved via squid_inc.paths storage root."""
+        p = Path(rel_or_abs).expanduser()
+        if p.is_absolute():
+            return p
+        # Try storage root (SQUID_DATA_ROOT or repo root)
+        candidate = squid_storage_root() / rel_or_abs
+        if candidate.exists():
+            return candidate
+        # Fallback to squid_root (code root)
+        fallback = squid_root / rel_or_abs
+        if fallback.exists():
+            return fallback
+        return default_path
+
     # ── Anchor set + graph ────────────────────────────────────────────────────
-    anchor_path = squid_root / squid_cfg.get("anchor_set", "results/anchors_balanced.csv")
+    anchor_rel = squid_cfg.get("anchor_set", "results/anchors_balanced.csv")
+    anchor_path = _resolve(anchor_rel, squid_results_path("anchors_balanced.csv"))
     if not anchor_path.exists():
         raise FileNotFoundError(f"Anchor set not found: {anchor_path}")
     anchor_rows = read_csv_rows(anchor_path)
     anchor_ids = {r.get("compound_id", "") for r in anchor_rows}
     print(f"Anchors: {len(anchor_rows)} from {anchor_path.name}")
 
-    graph_dir = squid_root / squid_cfg.get("graph_dir", "data/processed/graph/ready")
+    graph_rel = squid_cfg.get("graph_dir", "data/processed/graph/tranches")
+    graph_dir = _resolve(graph_rel, squid_data_path("processed", "graph", "tranches"))
     if not graph_dir.exists():
         raise FileNotFoundError(f"Graph not found: {graph_dir}")
 
     _CHEM_FP_BITS = 512   # must match EmbeddingConfig.chem_fp_bits
 
-    universe_csv = squid_root / "data/processed/compound_universe.csv"
+    universe_csv = squid_data_path("processed", "compound_universe.csv")
     universe_rows = read_csv_rows(universe_csv) if universe_csv.exists() else anchor_rows
     universe_with_coords = [
         {**r, "predicted_mz": predict_coordinates(r).get("ms1", 0.0)}
