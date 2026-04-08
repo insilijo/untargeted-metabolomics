@@ -197,7 +197,7 @@ def main() -> None:
 
     universe_csv = squid_data_path("processed", "compound_universe.csv")
     universe_rows = read_csv_rows(universe_csv) if universe_csv.exists() else anchor_rows
-    print(f"  Universe: {len(universe_rows)} compounds")
+    print(f"  Universe: {len(universe_rows)} compounds", flush=True)
     universe_with_coords = [
         {**r, "predicted_mz": predict_coordinates(r).get("ms1", 0.0)}
         for r in tqdm(universe_rows, desc="Predicting coordinates", unit="cpd")
@@ -213,7 +213,7 @@ def main() -> None:
             chem_fp_by_id[cid] = raw[:_CHEM_FP_BITS]
 
     # ── Pipeline outputs ──────────────────────────────────────────────────────
-    print("Loading pipeline outputs …")
+    print("Loading pipeline outputs …", flush=True)
     annot_csv_path = squid_cfg.get("annotation_csv")
     annotation_csv = (pipeline_dir / annot_csv_path) if annot_csv_path else None
     if annotation_csv and not annotation_csv.exists():
@@ -259,7 +259,7 @@ def main() -> None:
         print(f"  Computed {n_computed} fingerprints from annotation CSV SMILES")
 
     # ── Leiden community detection ────────────────────────────────────────────
-    print("Running Leiden community detection …")
+    print("Running Leiden community detection …", flush=True)
     communities = detect_communities(graph_dir, resolution=leiden_res)
     print(f"  {len(communities)} communities  "
           f"(largest: {communities[0].size if communities else 0})")
@@ -284,7 +284,7 @@ def main() -> None:
     blind = sum(1 for c in local_communities if c.is_blind)
     print(f"  Blind communities: {blind}/{len(local_communities)}")
 
-    print("Running message passing …")
+    print("Running message passing …", flush=True)
     state = build_localization_state(
         graph_dir, local_communities, present_ids, absent_ids,
         cross_community_damping=damping,
@@ -295,7 +295,7 @@ def main() -> None:
     # Unannotated features: from unannotated_dicts with cosine=0
     all_features: list[FeatureRecord] = []
 
-    print("Building feature records …")
+    print("Building feature records …", flush=True)
 
     # Annotated
     for gt in tqdm(ground_truth, desc="Annotated features", unit="feat"):
@@ -355,7 +355,7 @@ def main() -> None:
           f"{sum(not f.is_annotated for f in all_features)} unannotated)")
 
     # ── UMAP embedding ────────────────────────────────────────────────────────
-    print("Building UMAP embedding …")
+    print("Building UMAP embedding …", flush=True)
     embed_cfg = EmbeddingConfig()
     try:
         result = project_umap(
