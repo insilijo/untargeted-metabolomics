@@ -39,11 +39,32 @@ Config (config.yaml squid section)
 from __future__ import annotations
 
 import copy
+import logging
 import os
 import sys
+import warnings
 from pathlib import Path
 
 import pandas as pd
+
+# Suppress RDKit and other noisy warnings
+warnings.filterwarnings("ignore")
+logging.getLogger("rdkit").setLevel(logging.ERROR)
+try:
+    from rdkit import RDLogger
+    RDLogger.DisableLog("rdApp.*")
+except ImportError:
+    pass
+
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(it, **kw):  # type: ignore[misc]
+        desc = kw.get("desc", "")
+        total = kw.get("total")
+        if desc:
+            print(f"  {desc} …", flush=True)
+        return it
 
 from utils import ensure_dirs, load_config
 
@@ -176,13 +197,14 @@ def main() -> None:
 
     universe_csv = squid_data_path("processed", "compound_universe.csv")
     universe_rows = read_csv_rows(universe_csv) if universe_csv.exists() else anchor_rows
+    print(f"  Universe: {len(universe_rows)} compounds")
     universe_with_coords = [
         {**r, "predicted_mz": predict_coordinates(r).get("ms1", 0.0)}
-        for r in universe_rows
+        for r in tqdm(universe_rows, desc="Predicting coordinates", unit="cpd")
     ]
     # Pre-computed fingerprint column (comma-separated bits), padded to 512
     chem_fp_by_id: dict[str, list[int]] = {}
-    for r in universe_rows:
+    for r in tqdm(universe_rows, desc="Loading fingerprints", unit="cpd"):
         cid = r.get("compound_id", "")
         raw = [int(b) for b in (r.get("fingerprint") or "").split(",") if b]
         if raw:
@@ -276,7 +298,7 @@ def main() -> None:
     print("Building feature records …")
 
     # Annotated
-    for gt in ground_truth:
+    for gt in tqdm(ground_truth, desc="Annotated features", unit="feat"):
         ms2_mz, ms2_int = _best_ms2(gt.measured_mz, ms2_lookup, mz_tol)
         candidates = [
             c for c in universe_with_coords
@@ -305,7 +327,7 @@ def main() -> None:
         all_features.append(rec)
 
     # Unannotated
-    for i, feat in enumerate(unannotated_dicts):
+    for i, feat in enumerate(tqdm(unannotated_dicts, desc="Unannotated features", unit="feat")):
         ms2_mz, ms2_int = _best_ms2(feat["mz"], ms2_lookup, mz_tol)
         candidates = [
             c for c in universe_with_coords
