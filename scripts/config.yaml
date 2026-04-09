@@ -75,9 +75,10 @@ squid:
   graph_dir: data/processed/graph/tranches   # relative to squid_root
   min_cosine: 0.7          # minimum library match cosine to use as ground truth
   mz_tolerance_da: 0.01
-  leiden_resolution: 1.0
-  cross_community_damping: 0.5
+  # leiden_resolution: 1.0   # uncomment to enable Leiden community detection
+  # cross_community_damping: 0.5  # only used when leiden_resolution is set
   annotation_csv: data/raw/metabolon_annotations.csv
+  output_dir: ~/squid_results
   #   Required column : mz (or mass / precursor_mz)
   #   Optional columns: rt, inchikey, smiles, name, ccs, ms2, confidence
   #   MS2 format      : [[mz,int],...] JSON  or  "mz:int;mz:int"  or  interleaved flat

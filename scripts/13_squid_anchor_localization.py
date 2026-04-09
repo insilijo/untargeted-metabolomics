@@ -38,7 +38,6 @@ Config (config.yaml squid section)
 
 from __future__ import annotations
 
-import copy
 import logging
 import os
 import sys
@@ -155,7 +154,11 @@ def _best_ms2(mz: float, ms2_lookup: dict, mz_tol: float = 0.02) -> tuple[list, 
 def main() -> None:
     cfg = load_config()
     pipeline_dir = Path(__file__).resolve().parents[1]
-    processed_dir = pipeline_dir / Path(cfg["paths"]["processed_dir"])
+    squid_out = cfg.get("squid", {}).get("output_dir")
+    if squid_out:
+        processed_dir = Path(squid_out).expanduser().resolve()
+    else:
+        processed_dir = pipeline_dir / Path(cfg["paths"]["processed_dir"])
     ensure_dirs([processed_dir])
 
     squid_cfg = cfg.get("squid", {})
@@ -198,11 +201,14 @@ def main() -> None:
 
     universe_csv = squid_data_path("processed", "compound_universe.csv")
     universe_rows = read_csv_rows(universe_csv) if universe_csv.exists() else anchor_rows
-    print(f"  Universe: {len(universe_rows)} compounds", flush=True)
-    universe_with_coords = [
-        {**r, "predicted_mz": predict_coordinates(r).get("ms1", 0.0)}
-        for r in tqdm(universe_rows, desc="Predicting coordinates", unit="cpd")
-    ]
+    print(f"  Universe CSV: {len(universe_rows)} compounds", flush=True)
+
+    # inchikey → compound_id for direct community lookup of annotated features
+    inchikey_to_cid: dict[str, str] = {
+        r["inchikey"]: r["compound_id"]
+        for r in universe_rows
+        if r.get("inchikey") and r.get("compound_id")
+    }
     # Pre-computed fingerprint column (comma-separated bits), padded to 512
     chem_fp_by_id: dict[str, list[int]] = {}
     for r in tqdm(universe_rows, desc="Loading fingerprints", unit="cpd"):
@@ -212,6 +218,41 @@ def main() -> None:
             if len(raw) < _CHEM_FP_BITS:
                 raw += [0] * (_CHEM_FP_BITS - len(raw))
             chem_fp_by_id[cid] = raw[:_CHEM_FP_BITS]
+
+    # Build sorted m/z index from graph node parquet files for fast candidate lookup.
+    # Graph has 3M+ nodes; universe CSV only ~50k — must use node predicted_ms1_mz.
+    print("  Building m/z index from graph nodes …", flush=True)
+    import bisect
+    from squid_inc.universe.parquet_store import iterate_parquet_rows as _ipr
+    _node_cols_mz = ["compound_id", "predicted_ms1_mz"]
+    if (graph_dir / "nodes.parquet").exists():
+        _node_sources_mz = [graph_dir / "nodes.parquet"]
+    else:
+        _node_sources_mz = [
+            d / "nodes.parquet"
+            for d in sorted(graph_dir.iterdir())
+            if d.is_dir() and (d / "nodes.parquet").exists()
+        ]
+    # Collect unsorted, then sort once — O(N log N) vs O(N²) for repeated inserts
+    _raw_pairs: list[tuple[float, str]] = []
+    for n_path in tqdm(_node_sources_mz, desc="Indexing nodes", unit="file"):
+        for row in _ipr(n_path, columns=_node_cols_mz):
+            mz_val = row.get("predicted_ms1_mz") or 0.0
+            if mz_val > 0:
+                _raw_pairs.append((float(mz_val), row["compound_id"]))
+    _raw_pairs.sort()
+    _mz_index_mz = [p[0] for p in _raw_pairs]
+    _mz_index_cid = [p[1] for p in _raw_pairs]
+    del _raw_pairs
+    print(f"  m/z index: {len(_mz_index_mz):,} nodes", flush=True)
+
+    def _candidates_by_mz(mz: float, tol: float) -> list[dict]:
+        lo = bisect.bisect_left(_mz_index_mz, mz - tol)
+        hi = bisect.bisect_right(_mz_index_mz, mz + tol)
+        return [
+            {"compound_id": _mz_index_cid[i], "predicted_mz": _mz_index_mz[i]}
+            for i in range(lo, hi)
+        ]
 
     # ── Pipeline outputs ──────────────────────────────────────────────────────
     print("Loading pipeline outputs …", flush=True)
@@ -259,11 +300,19 @@ def main() -> None:
     if n_computed:
         print(f"  Computed {n_computed} fingerprints from annotation CSV SMILES")
 
-    # ── Leiden community detection ────────────────────────────────────────────
-    print("Running Leiden community detection …", flush=True)
-    communities = detect_communities(graph_dir, resolution=leiden_res)
-    print(f"  {len(communities)} communities  "
-          f"(largest: {communities[0].size if communities else 0})")
+    # ── Optional Leiden community detection ──────────────────────────────────
+    # Only run if leiden_resolution is explicitly set in config.
+    # Default: flat message passing — no community boundaries, no missingness penalty.
+    use_leiden = "leiden_resolution" in squid_cfg
+    local_communities = None
+    if use_leiden:
+        print("Running Leiden community detection …", flush=True)
+        communities = detect_communities(graph_dir, resolution=leiden_res)
+        print(f"  {len(communities)} communities  "
+              f"(largest: {communities[0].size if communities else 0})")
+        import copy
+        local_communities = copy.deepcopy(communities)
+        assign_anchors_to_communities(local_communities, anchor_ids)
 
     # ── RT calibration + message passing ─────────────────────────────────────
     predicted_coords = [
@@ -279,15 +328,15 @@ def main() -> None:
                    if r.get("inchikey", "") in gt_inchikeys}
     absent_ids = anchor_ids - present_ids
 
-    local_communities = copy.deepcopy(communities)
-    assign_anchors_to_communities(local_communities, anchor_ids)
-    apply_observation_vector(local_communities, present_ids, absent_ids)
-    blind = sum(1 for c in local_communities if c.is_blind)
-    print(f"  Blind communities: {blind}/{len(local_communities)}")
+    if local_communities is not None:
+        apply_observation_vector(local_communities, present_ids, absent_ids)
+        blind = sum(1 for c in local_communities if c.is_blind)
+        print(f"  Blind communities: {blind}/{len(local_communities)}")
 
     print("Running message passing …", flush=True)
     state = build_localization_state(
-        graph_dir, local_communities, present_ids, absent_ids,
+        graph_dir, present_ids, absent_ids,
+        communities=local_communities,
         cross_community_damping=damping,
     )
 
@@ -298,17 +347,9 @@ def main() -> None:
 
     print("Building feature records …", flush=True)
 
-    # Annotated
+    # Annotated — use inchikey → compound_id lookup for direct community placement
     for gt in tqdm(ground_truth, desc="Annotated features", unit="feat"):
         ms2_mz, ms2_int = _best_ms2(gt.measured_mz, ms2_lookup, mz_tol)
-        candidates = [
-            c for c in universe_with_coords
-            if abs(float(c.get("predicted_mz", 0.0)) - gt.measured_mz) <= mz_tol * 3
-        ]
-        loc = localize_feature(
-            {"mz": gt.measured_mz, "rt": gt.measured_rt},
-            state, candidates, mz_tolerance=mz_tol * 3,
-        )
         rec = FeatureRecord(
             feature_id=gt.compound_id,
             mz=gt.measured_mz,
@@ -320,20 +361,31 @@ def main() -> None:
             ms2_mz=ms2_mz,
             ms2_intensity=ms2_int,
         )
-        if loc:
-            rec.candidate_compound_id = loc.best_candidate_id
-            rec.chemical_fingerprint = chem_fp_by_id.get(loc.best_candidate_id, [])
-            rec.message_prior = loc.message_prior
-            rec.community_id = loc.best_candidate_community
+        # Direct lookup via inchikey if available in universe
+        known_cid = inchikey_to_cid.get(gt.inchikey or "")
+        if known_cid and (known_cid in state.priors or known_cid in state.community_map):
+            rec.candidate_compound_id = known_cid
+            rec.chemical_fingerprint = chem_fp_by_id.get(known_cid, [])
+            rec.message_prior = state.priors.get(known_cid, 0.5)
+            rec.community_id = state.community_map[known_cid]
+        else:
+            # Fall back to mz-window search against full graph node index
+            candidates = _candidates_by_mz(gt.measured_mz, mz_tol * 3)
+            loc = localize_feature(
+                {"mz": gt.measured_mz, "rt": gt.measured_rt},
+                state, candidates, mz_tolerance=mz_tol * 3,
+            )
+            if loc:
+                rec.candidate_compound_id = loc.best_candidate_id
+                rec.chemical_fingerprint = chem_fp_by_id.get(loc.best_candidate_id, [])
+                rec.message_prior = loc.message_prior
+                rec.community_id = loc.best_candidate_community
         all_features.append(rec)
 
     # Unannotated
     for i, feat in enumerate(tqdm(unannotated_dicts, desc="Unannotated features", unit="feat")):
         ms2_mz, ms2_int = _best_ms2(feat["mz"], ms2_lookup, mz_tol)
-        candidates = [
-            c for c in universe_with_coords
-            if abs(float(c.get("predicted_mz", 0.0)) - feat["mz"]) <= mz_tol * 3
-        ]
+        candidates = _candidates_by_mz(feat["mz"], mz_tol * 3)
         loc = localize_feature(feat, state, candidates, mz_tolerance=mz_tol * 3)
         rec = FeatureRecord(
             feature_id=feat.get("feature_id", f"unk_{i}"),
