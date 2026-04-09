@@ -200,10 +200,10 @@ def main() -> None:
     _CHEM_FP_BITS = 512   # must match EmbeddingConfig.chem_fp_bits
 
     universe_csv = squid_data_path("processed", "compound_universe.csv")
-    universe_rows = read_csv_rows(universe_csv) if universe_csv.exists() else anchor_rows
+    universe_rows = read_csv_rows(universe_csv) if universe_csv.exists() else []
     print(f"  Universe CSV: {len(universe_rows)} compounds", flush=True)
 
-    # inchikey → compound_id for direct community lookup of annotated features
+    # inchikey → compound_id from universe CSV (best effort — may be incomplete)
     inchikey_to_cid: dict[str, str] = {
         r["inchikey"]: r["compound_id"]
         for r in universe_rows
@@ -224,7 +224,7 @@ def main() -> None:
     print("  Building m/z index from graph nodes …", flush=True)
     import bisect
     from squid_inc.universe.parquet_store import iterate_parquet_rows as _ipr
-    _node_cols_mz = ["compound_id", "predicted_ms1_mz"]
+    _node_cols_mz = ["compound_id", "predicted_ms1_mz", "inchikey", "pubchem_cid"]
     if (graph_dir / "nodes.parquet").exists():
         _node_sources_mz = [graph_dir / "nodes.parquet"]
     else:
@@ -237,9 +237,14 @@ def main() -> None:
     _raw_pairs: list[tuple[float, str]] = []
     for n_path in tqdm(_node_sources_mz, desc="Indexing nodes", unit="file"):
         for row in _ipr(n_path, columns=_node_cols_mz):
+            cid = row["compound_id"]
             mz_val = row.get("predicted_ms1_mz") or 0.0
             if mz_val > 0:
-                _raw_pairs.append((float(mz_val), row["compound_id"]))
+                _raw_pairs.append((float(mz_val), cid))
+            # If node file has inchikey (new graph builds), use it directly
+            ik = row.get("inchikey") or ""
+            if ik and ik not in inchikey_to_cid:
+                inchikey_to_cid[ik] = cid
     _raw_pairs.sort()
     _mz_index_mz = [p[0] for p in _raw_pairs]
     _mz_index_cid = [p[1] for p in _raw_pairs]
