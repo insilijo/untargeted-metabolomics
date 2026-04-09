@@ -135,20 +135,37 @@ def _load_ms2_lookup(pipeline_dir: Path) -> dict[str, dict]:
     return lookup
 
 
-def _best_ms2(mz: float, ms2_lookup: dict, mz_tol: float = 0.02) -> tuple[list, list]:
+def _build_ms2_index(ms2_lookup: dict) -> tuple[list[float], list]:
+    """Build a sorted mz index over ms2_lookup keys for O(log N) lookup."""
+    import bisect
+    pairs = sorted(
+        [(key[1], key) for key in ms2_lookup if isinstance(key, tuple)],
+        key=lambda x: x[0],
+    )
+    return [p[0] for p in pairs], [p[1] for p in pairs]
+
+
+def _best_ms2(mz: float, ms2_lookup: dict, mz_tol: float = 0.02,
+              _index: tuple | None = None) -> tuple[list, list]:
     """Find the closest MS2 spectrum for a given precursor m/z."""
-    best_key = None
-    best_dist = float("inf")
-    for key in ms2_lookup:
-        pmz = key[1] if isinstance(key, tuple) else 0.0
-        d = abs(pmz - mz)
-        if d < best_dist and d <= mz_tol:
-            best_dist = d
-            best_key = key
-    if best_key:
-        s = ms2_lookup[best_key]
-        return s["mz_array"], s["intensity_array"]
-    return [], []
+    import bisect
+    if _index is None:
+        # Slow fallback — caller should pass pre-built index
+        for key in ms2_lookup:
+            pmz = key[1] if isinstance(key, tuple) else 0.0
+            if abs(pmz - mz) <= mz_tol:
+                s = ms2_lookup[key]
+                return s["mz_array"], s["intensity_array"]
+        return [], []
+    mz_vals, keys = _index
+    lo = bisect.bisect_left(mz_vals, mz - mz_tol)
+    hi = bisect.bisect_right(mz_vals, mz + mz_tol)
+    if lo >= hi:
+        return [], []
+    # Pick closest
+    best_key = min(keys[lo:hi], key=lambda k: abs(k[1] - mz))
+    s = ms2_lookup[best_key]
+    return s["mz_array"], s["intensity_array"]
 
 
 def main() -> None:
@@ -282,6 +299,7 @@ def main() -> None:
         f"MS2 spectra: {len(ms2_lookup)}"
         + (f"  (annotation CSV: {annotation_csv.name})" if annotation_csv else "")
     )
+    ms2_index = _build_ms2_index(ms2_lookup)
 
     # ── Fingerprints from annotation CSV SMILES ───────────────────────────────
     # Compounds in the annotation CSV may not be in compound_universe.csv.
@@ -354,7 +372,7 @@ def main() -> None:
 
     # Annotated — use inchikey → compound_id lookup for direct community placement
     for gt in tqdm(ground_truth, desc="Annotated features", unit="feat"):
-        ms2_mz, ms2_int = _best_ms2(gt.measured_mz, ms2_lookup, mz_tol)
+        ms2_mz, ms2_int = _best_ms2(gt.measured_mz, ms2_lookup, mz_tol, ms2_index)
         rec = FeatureRecord(
             feature_id=gt.compound_id,
             mz=gt.measured_mz,
@@ -389,7 +407,7 @@ def main() -> None:
 
     # Unannotated
     for i, feat in enumerate(tqdm(unannotated_dicts, desc="Unannotated features", unit="feat")):
-        ms2_mz, ms2_int = _best_ms2(feat["mz"], ms2_lookup, mz_tol)
+        ms2_mz, ms2_int = _best_ms2(feat["mz"], ms2_lookup, mz_tol, ms2_index)
         candidates = _candidates_by_mz(feat["mz"], mz_tol * 3)
         loc = localize_feature(feat, state, candidates, mz_tolerance=mz_tol * 3)
         rec = FeatureRecord(
