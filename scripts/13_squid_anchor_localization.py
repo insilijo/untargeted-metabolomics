@@ -140,11 +140,12 @@ def _best_ms2(mz: float, ms2_lookup: dict, mz_tol: float = 0.02) -> tuple[list, 
     """Find the closest MS2 spectrum for a given precursor m/z."""
     best_key = None
     best_dist = float("inf")
-    for (_, pmz), _ in ms2_lookup.items():
+    for key in ms2_lookup:
+        pmz = key[1] if isinstance(key, tuple) else 0.0
         d = abs(pmz - mz)
         if d < best_dist and d <= mz_tol:
             best_dist = d
-            best_key = (_, pmz)
+            best_key = key
     if best_key:
         s = ms2_lookup[best_key]
         return s["mz_array"], s["intensity_array"]
