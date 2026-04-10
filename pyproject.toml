@@ -24,6 +24,14 @@ openpyxl = "^3.1.5"
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.29"
+pytest = ">=8,<10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: tests that load real mzML files from data/raw/",
+    "integration: full subprocess pipeline tests (needs all data + deps)",
+]
 
 [build-system]
 requires = ["poetry-core>=1.5.0"]
