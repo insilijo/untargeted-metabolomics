@@ -268,13 +268,43 @@ def main() -> None:
     del _raw_pairs
     print(f"  m/z index: {len(_mz_index_mz):,} nodes", flush=True)
 
-    def _candidates_by_mz(mz: float, tol: float) -> list[dict]:
+    def _best_candidate(mz: float, tol: float, priors: dict, mz_scale: float = 800.0) -> tuple[str, float, float, int] | None:
+        """Return (compound_id, message_prior, combined_score, community_id) for the best
+        candidate within mz±tol, or None if no candidates found.
+
+        Fast path: most candidates have prior=0.5 (no anchor signal), so the winner
+        is the closest mz. Only rescore if a candidate has a non-neutral prior.
+        """
         lo = bisect.bisect_left(_mz_index_mz, mz - tol)
         hi = bisect.bisect_right(_mz_index_mz, mz + tol)
-        return [
-            {"compound_id": _mz_index_cid[i], "predicted_mz": _mz_index_mz[i]}
-            for i in range(lo, hi)
-        ]
+        if lo >= hi:
+            return None
+
+        # Find closest mz (neutral baseline winner)
+        mid = lo + min(range(hi - lo), key=lambda k: abs(_mz_index_mz[lo + k] - mz))
+        best_cid = _mz_index_cid[mid]
+        best_prior = priors.get(best_cid, 0.5)
+        best_cmz = _mz_index_mz[mid]
+        best_mz_prox = max(0.0, 1.0 - abs(mz - best_cmz) / mz_scale)
+        best_score = 0.6 * best_prior + 0.4 * best_mz_prox
+
+        # Only iterate if any candidate in window has a non-neutral prior
+        for i in range(lo, hi):
+            cid = _mz_index_cid[i]
+            if cid not in priors:
+                continue  # neutral — skip
+            prior = priors[cid]
+            if prior == 0.5:
+                continue
+            cmz = _mz_index_mz[i]
+            mz_prox = max(0.0, 1.0 - abs(mz - cmz) / mz_scale)
+            score = 0.6 * prior + 0.4 * mz_prox
+            if score > best_score:
+                best_score = score
+                best_cid = cid
+                best_prior = prior
+
+        return best_cid, best_prior, best_score, state.community_map.get(best_cid, -1)
 
     # ── Pipeline outputs ──────────────────────────────────────────────────────
     print("Loading pipeline outputs …", flush=True)
@@ -384,32 +414,26 @@ def main() -> None:
             ms2_mz=ms2_mz,
             ms2_intensity=ms2_int,
         )
-        # Direct lookup via inchikey if available in universe
+        # Direct lookup via inchikey if available
         known_cid = inchikey_to_cid.get(gt.inchikey or "")
-        if known_cid and (known_cid in state.priors or known_cid in state.community_map):
+        if known_cid:
             rec.candidate_compound_id = known_cid
             rec.chemical_fingerprint = chem_fp_by_id.get(known_cid, [])
             rec.message_prior = state.priors.get(known_cid, 0.5)
-            rec.community_id = state.community_map[known_cid]
+            rec.community_id = state.community_map.get(known_cid, -1)
         else:
-            # Fall back to mz-window search against full graph node index
-            candidates = _candidates_by_mz(gt.measured_mz, mz_tol * 3)
-            loc = localize_feature(
-                {"mz": gt.measured_mz, "rt": gt.measured_rt},
-                state, candidates, mz_tolerance=mz_tol * 3,
-            )
-            if loc:
-                rec.candidate_compound_id = loc.best_candidate_id
-                rec.chemical_fingerprint = chem_fp_by_id.get(loc.best_candidate_id, [])
-                rec.message_prior = loc.message_prior
-                rec.community_id = loc.best_candidate_community
+            hit = _best_candidate(gt.measured_mz, mz_tol * 3, state.priors)
+            if hit:
+                cid, prior, _, comm = hit
+                rec.candidate_compound_id = cid
+                rec.chemical_fingerprint = chem_fp_by_id.get(cid, [])
+                rec.message_prior = prior
+                rec.community_id = comm
         all_features.append(rec)
 
     # Unannotated
     for i, feat in enumerate(tqdm(unannotated_dicts, desc="Unannotated features", unit="feat")):
         ms2_mz, ms2_int = _best_ms2(feat["mz"], ms2_lookup, mz_tol, ms2_index)
-        candidates = _candidates_by_mz(feat["mz"], mz_tol * 3)
-        loc = localize_feature(feat, state, candidates, mz_tolerance=mz_tol * 3)
         rec = FeatureRecord(
             feature_id=feat.get("feature_id", f"unk_{i}"),
             mz=feat["mz"],
@@ -419,11 +443,13 @@ def main() -> None:
             ms2_mz=ms2_mz,
             ms2_intensity=ms2_int,
         )
-        if loc:
-            rec.candidate_compound_id = loc.best_candidate_id
-            rec.chemical_fingerprint = chem_fp_by_id.get(loc.best_candidate_id, [])
-            rec.message_prior = loc.message_prior
-            rec.community_id = loc.best_candidate_community
+        hit = _best_candidate(feat["mz"], mz_tol * 3, state.priors)
+        if hit:
+            cid, prior, _, comm = hit
+            rec.candidate_compound_id = cid
+            rec.chemical_fingerprint = chem_fp_by_id.get(cid, [])
+            rec.message_prior = prior
+            rec.community_id = comm
         all_features.append(rec)
 
     print(f"  Total features for embedding: {len(all_features)} "
