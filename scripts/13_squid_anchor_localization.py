@@ -508,7 +508,7 @@ def main() -> None:
             "is_blind": c.is_blind,
             "anchor_ids": ";".join(c.anchor_ids),
         }
-        for c in local_communities
+        for c in (local_communities or [])
     ])
     comm_df.to_csv(processed_dir / "squid_community_summary.tsv", sep="\t", index=False)
     print(f"  → {processed_dir / 'squid_community_summary.tsv'}")
