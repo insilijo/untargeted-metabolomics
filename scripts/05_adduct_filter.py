@@ -77,6 +77,11 @@ def main() -> None:
     rt_tol = float(adduct_cfg["rt_tolerance_sec"])
     mz_tol = float(adduct_cfg["mz_tolerance_da"])
     adducts = adduct_cfg["adduct_deltas"]
+    # Real non-isotope adducts (Na+, K+, NH4+) are typically <=30% of the M+H
+    # peak. When two features at the same RT match an adduct Δm but their
+    # intensities are ~equal, they're more likely two distinct compounds that
+    # happen to differ by that Δm. C13 isotopes are exempt (always collapse).
+    max_adduct_ratio = float(adduct_cfg.get("max_adduct_ratio", 0.5))
 
     to_remove = set()
     pairs = []
@@ -109,9 +114,20 @@ def main() -> None:
             if intensity_i >= intensity_j:
                 drop_id = int(merged.loc[j, "group_id"])
                 keep_id = int(merged.loc[i, "group_id"])
+                keep_int, drop_int = intensity_i, intensity_j
             else:
                 drop_id = int(merged.loc[i, "group_id"])
                 keep_id = int(merged.loc[j, "group_id"])
+                keep_int, drop_int = intensity_j, intensity_i
+
+            # Skip non-isotope collapses when the "adduct" peak is too intense
+            # relative to its "parent" — real adducts don't exceed this ratio.
+            # C13 isotopes (natural abundance ~1%/C) can get close to the
+            # parent for high-carbon compounds, so keep them exempt.
+            if hit != "C13 isotope" and keep_int > 0:
+                ratio = drop_int / keep_int
+                if ratio > max_adduct_ratio:
+                    continue
 
             if drop_id in known_ids or keep_id in known_ids:
                 continue

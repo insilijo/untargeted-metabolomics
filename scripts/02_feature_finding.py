@@ -123,14 +123,26 @@ def main() -> None:
         raise SystemExit("No mzML files found for feature finding.")
 
     ff_cfg = cfg["feature_finding"]
+    # Peak-finder backend toggle. 'ffm' = OpenMS FeatureFindingMetabo (legacy,
+    # requires isotope pattern); 'centwave_py' = pure-Python centWave-style
+    # (ROI + scipy find_peaks). Default stays 'ffm' for backwards compatibility.
+    backend = str(ff_cfg.get("backend", "ffm")).lower()
     all_features = []
-    for mzml_path in files:
-        fmap, traces = run_feature_finding(mzml_path, ff_cfg)
-        feature_xml = interim_dir / f"{mzml_path.stem}_features.featureXML"
-        oms.FeatureXMLFile().store(str(feature_xml), fmap)
+    if backend == "centwave_py":
+        from centwave_py import find_features as _cwpy_find
+        print("Feature-finder backend: centwave_py (pure Python)")
+        for mzml_path in files:
+            df = _cwpy_find(mzml_path, ff_cfg)
+            all_features.append(df)
+    else:
+        print("Feature-finder backend: ffm (OpenMS FeatureFindingMetabo)")
+        for mzml_path in files:
+            fmap, traces = run_feature_finding(mzml_path, ff_cfg)
+            feature_xml = interim_dir / f"{mzml_path.stem}_features.featureXML"
+            oms.FeatureXMLFile().store(str(feature_xml), fmap)
 
-        df = feature_map_to_df(fmap, traces, mzml_path.name)
-        all_features.append(df)
+            df = feature_map_to_df(fmap, traces, mzml_path.name)
+            all_features.append(df)
 
     combined = pd.concat(all_features, ignore_index=True)
     out_path = interim_dir / "features.tsv"
