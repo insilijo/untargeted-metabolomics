@@ -22,11 +22,11 @@ ms2_extraction:
   min_intensity: 1000.0
 
 feature_finding:
-  noise_threshold_int: 1000.0
+  noise_threshold_int: 100.0
   mass_error_ppm: 10.0
-  chrom_fwhm: 5.0
-  chrom_peak_snr: 3.0
-  min_trace_length: 5.0
+  chrom_fwhm: 30.0
+  chrom_peak_snr: 2.0
+  min_trace_length: 3.0
   max_trace_length: -1.0
 
 feature_alignment:
