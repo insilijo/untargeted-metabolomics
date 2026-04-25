@@ -22,6 +22,9 @@ ms2_extraction:
   min_intensity: 1000.0
 
 feature_finding:
+  backend: centwave_py        # FFM rejects lone peaks (no isotope pattern);
+                               # centwave_py keeps them — needed for polar /
+                               # plateau-eluting metabolites (glycine, sulfate).
   noise_threshold_int: 100.0
   mass_error_ppm: 10.0
   chrom_fwhm: 30.0
