@@ -27,7 +27,9 @@ feature_finding:
                                # plateau-eluting metabolites (glycine, sulfate).
   noise_threshold_int: 100.0
   mass_error_ppm: 10.0
-  chrom_fwhm: 30.0
+  chrom_fwhm: 5.0          # Param sweep on neg sample (Method3): FWHM=5 gives
+                            # 9,893 features; 10 gives 1,322; 30 gives 29.
+                            # Plasma gradients here have ~5–10s peaks.
   chrom_peak_snr: 2.0
   min_trace_length: 3.0
   max_trace_length: -1.0
