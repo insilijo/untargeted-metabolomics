@@ -15,8 +15,9 @@ figures/*
 notebooks/*
 !notebooks/.gitkeep
 .venv*
-
 data/HOC/
-
 query_errors.log
 .codex
+data/st004581_raw/
+data/st004581_raw2/
+data/st004581_work/
