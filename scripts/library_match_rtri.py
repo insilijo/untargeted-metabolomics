@@ -183,21 +183,52 @@ def consensus_features(df, mz_ppm, ri_tol_by_plat, min_rep):
     return pd.DataFrame(out)
 
 
-def make_ri_win_fn(slope, anchor_ris, adaptive, fixed_sec, floor_sec, alpha, cap_sec):
-    """Return win(plat, ri) -> RI-window. Fixed = fixed_sec*slope. Adaptive scales
-    with the local inter-anchor gap: tight where anchors dense, wide where sparse,
-    clamped to [floor_sec, cap_sec] (in seconds, * slope)."""
+def anchor_rt_spread(features, anchors, mz_ppm):
+    """Per-platform peak-RT reproducibility (median P90-P10, seconds) from anchors —
+    the right scale for a flexible window: tight where peaks are reproducible."""
+    spread = {}
+    for plat, g in features.groupby("platform"):
+        pts = anchors.get(plat, [])
+        if not pts:
+            continue
+        g = g.sort_values("mz")
+        fmz = g.mz.to_numpy(); frt = g.rt.to_numpy(); fint = g.intensity.to_numpy(); fsrc = g.source_file.to_numpy()
+        sps = []
+        for mz, _ri in pts:
+            t = mz * mz_ppm * 1e-6
+            lo = np.searchsorted(fmz, mz - t); hi = np.searchsorted(fmz, mz + t)
+            if hi <= lo: continue
+            byf = {}
+            for k in range(lo, hi):
+                s = fsrc[k]
+                if s not in byf or fint[k] > byf[s][1]: byf[s] = (frt[k], fint[k])
+            rts = np.array([v[0] for v in byf.values()])
+            if len(rts) >= 5: sps.append(np.percentile(rts, 90) - np.percentile(rts, 10))
+        if sps:
+            spread[plat] = float(np.median(sps))
+    return spread
+
+
+def make_ri_win_fn(slope, anchor_ris, mode, fixed_sec, floor_sec, alpha, cap_sec, spread=None):
+    """Return win(plat, ri) -> RI-window (in RI units).
+      fixed     : fixed_sec * slope
+      spacing   : clamp(alpha*local_anchor_gap, [floor,cap]s)   — local interpolation uncertainty
+      precision : clamp(floor + alpha*measured_anchor_RT_spread, [floor,cap]s) per platform"""
+    spread = spread or {}
     def win(plat, ri):
         s = slope.get(plat, 17.0)
-        if not adaptive:
-            return fixed_sec * s
-        a = anchor_ris.get(plat)
         floor_ri, cap_ri = floor_sec * s, cap_sec * s
-        if a is None or len(a) < 2:
-            return fixed_sec * s
-        i = np.searchsorted(a, ri)
-        gap = (a[1]-a[0] if i == 0 else a[-1]-a[-2] if i >= len(a) else a[i]-a[i-1])
-        return float(min(cap_ri, max(floor_ri, alpha * gap)))
+        if mode == "precision":
+            w = (floor_sec + alpha * spread.get(plat, fixed_sec)) * s
+            return float(min(cap_ri, max(floor_ri, w)))
+        if mode == "spacing":
+            a = anchor_ris.get(plat)
+            if a is None or len(a) < 2:
+                return fixed_sec * s
+            i = np.searchsorted(a, ri)
+            gap = (a[1]-a[0] if i == 0 else a[-1]-a[-2] if i >= len(a) else a[i]-a[i-1])
+            return float(min(cap_ri, max(floor_ri, alpha * gap)))
+        return fixed_sec * s
     return win
 
 
@@ -286,12 +317,13 @@ def main():
                          "(finest; removes injection-to-injection drift before consensus -> "
                          "tighter consensus RI), per batch, or one per platform.")
     ap.add_argument("--batch-regex", default=r"(Set\d+)")
-    ap.add_argument("--adaptive-window", action="store_true",
-                    help="scale the RI match window by LOCAL anchor spacing: tight where "
-                         "anchors are dense (isomer precision), wide where sparse (recover "
-                         "RI-shift FNs). Window = clamp(alpha*local_anchor_gap, "
-                         "[rt-floor-sec, rt-cap-sec]*slope).")
-    ap.add_argument("--alpha", type=float, default=0.5, help="fraction of local anchor gap")
+    ap.add_argument("--window-mode", choices=["fixed", "spacing", "precision"], default="fixed",
+                    help="fixed: rt-win-sec everywhere. spacing: scale by local anchor gap. "
+                         "precision: per-platform window from measured anchor RT reproducibility "
+                         "(tight where peaks are reproducible e.g. pos-early ~1s; wide where noisy "
+                         "e.g. neg). 'precision' is the recommended flexible mode.")
+    ap.add_argument("--alpha", type=float, default=0.5,
+                    help="spacing: fraction of local anchor gap; precision: multiple of RT spread")
     ap.add_argument("--rt-floor-sec", type=float, default=10.0)
     ap.add_argument("--rt-cap-sec", type=float, default=60.0)
     ap.add_argument("--no-prefer-structured", action="store_true")
@@ -319,13 +351,16 @@ def main():
     slope = ri_per_sec(pooled_pairs)
     ri_tol = {p: a.rt_tol_sec * s for p, s in slope.items()}
     anchor_ris = {p: np.array(sorted(ri for _, ri in pts)) for p, pts in anchors.items()}
-    ri_win_fn = make_ri_win_fn(slope, anchor_ris, a.adaptive_window,
-                               a.rt_win_sec, a.rt_floor_sec, a.alpha, a.rt_cap_sec)
+    spread = anchor_rt_spread(df, anchors, a.mz_ppm) if a.window_mode == "precision" else {}
+    ri_win_fn = make_ri_win_fn(slope, anchor_ris, a.window_mode,
+                               a.rt_win_sec, a.rt_floor_sec, a.alpha, a.rt_cap_sec, spread)
+    wdesc = (f"precision(floor{a.rt_floor_sec}+{a.alpha}*spread, spread_s={ {p:round(v,1) for p,v in spread.items()} })"
+             if a.window_mode == "precision" else
+             f"spacing(alpha={a.alpha},[{a.rt_floor_sec},{a.rt_cap_sec}]s)" if a.window_mode == "spacing"
+             else f"{a.rt_win_sec}s fixed")
     print(f"per-batch RI ladders: {len(ladders)} (anchor coverage med "
           f"{int(np.median(list(cov.values()))) if cov else 0}); RI/s slope: "
-          f"{ {p: round(s,1) for p,s in slope.items()} }; "
-          f"window={'adaptive(alpha=%.2f,[%g,%g]s)'%(a.alpha,a.rt_floor_sec,a.rt_cap_sec) if a.adaptive_window else '%gs fixed'%a.rt_win_sec}",
-          flush=True)
+          f"{ {p: round(s,1) for p,s in slope.items()} }; window={wdesc}", flush=True)
     df = normalise_ri(df, ladders, pooled)
     print(f"features normalised to RI: {len(df)}", flush=True)
     cons = consensus_features(df, a.mz_ppm, ri_tol, a.min_rep)
