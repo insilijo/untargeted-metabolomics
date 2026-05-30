@@ -261,7 +261,13 @@ def main():
     ap.add_argument("--rt-tol-sec", type=float, default=10.0,
                     help="consensus RI grouping, in seconds (auto-scaled)")
     ap.add_argument("--min-rep", type=int, default=2)
-    ap.add_argument("--anchor-min-rep", type=int, default=2)
+    ap.add_argument("--anchor-min-rep", type=int, default=0,
+                    help="0 = auto (1 for injection-level alignment, 2 otherwise)")
+    ap.add_argument("--align-level", choices=["injection", "batch", "platform"],
+                    default="injection",
+                    help="RT-alignment grain: detect the anchor ladder per injection "
+                         "(finest; removes injection-to-injection drift before consensus -> "
+                         "tighter consensus RI), per batch, or one per platform.")
     ap.add_argument("--batch-regex", default=r"(Set\d+)")
     ap.add_argument("--no-prefer-structured", action="store_true")
     ap.add_argument("--gt", default="")
@@ -272,11 +278,19 @@ def main():
     if "platform" not in df.columns:
         df["platform"] = df.source_file.str.split("_").str[0].map(DEFAULT_PREFIX_MAP)
     df = df.dropna(subset=["platform"])
-    df["batch"] = df.source_file.str.extract(a.batch_regex, expand=False).fillna("all")
-    print(f"features: {len(df)}  platforms {df.platform.nunique()}  batches {df.batch.nunique()}", flush=True)
+    # alignment grain -> the 'batch' key the per-group ladder is fit on
+    if a.align_level == "injection":
+        df["batch"] = df.source_file
+    elif a.align_level == "platform":
+        df["batch"] = df.platform
+    else:
+        df["batch"] = df.source_file.str.extract(a.batch_regex, expand=False).fillna("all")
+    amr = a.anchor_min_rep or (1 if a.align_level == "injection" else 2)
+    print(f"features: {len(df)}  platforms {df.platform.nunique()}  "
+          f"align={a.align_level} ({df.batch.nunique()} groups, anchor_min_rep={amr})", flush=True)
 
     lib = load_library(Path(a.library)); anchors = load_anchor_points(Path(a.anchors))
-    ladders, pooled, cov, pooled_pairs = build_batch_ladders(df, anchors, a.mz_ppm, a.anchor_min_rep)
+    ladders, pooled, cov, pooled_pairs = build_batch_ladders(df, anchors, a.mz_ppm, amr)
     slope = ri_per_sec(pooled_pairs)
     ri_win = {p: a.rt_win_sec * s for p, s in slope.items()}
     ri_tol = {p: a.rt_tol_sec * s for p, s in slope.items()}
