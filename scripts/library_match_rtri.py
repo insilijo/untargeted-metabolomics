@@ -183,21 +183,39 @@ def consensus_features(df, mz_ppm, ri_tol_by_plat, min_rep):
     return pd.DataFrame(out)
 
 
-def match(cons, lib, mz_ppm, ri_win_by_plat, prefer_structured=True):
+def make_ri_win_fn(slope, anchor_ris, adaptive, fixed_sec, floor_sec, alpha, cap_sec):
+    """Return win(plat, ri) -> RI-window. Fixed = fixed_sec*slope. Adaptive scales
+    with the local inter-anchor gap: tight where anchors dense, wide where sparse,
+    clamped to [floor_sec, cap_sec] (in seconds, * slope)."""
+    def win(plat, ri):
+        s = slope.get(plat, 17.0)
+        if not adaptive:
+            return fixed_sec * s
+        a = anchor_ris.get(plat)
+        floor_ri, cap_ri = floor_sec * s, cap_sec * s
+        if a is None or len(a) < 2:
+            return fixed_sec * s
+        i = np.searchsorted(a, ri)
+        gap = (a[1]-a[0] if i == 0 else a[-1]-a[-2] if i >= len(a) else a[i]-a[i-1])
+        return float(min(cap_ri, max(floor_ri, alpha * gap)))
+    return win
+
+
+def match(cons, lib, mz_ppm, ri_win_fn, prefer_structured=True):
     rows = []
     for plat, g in cons.groupby("platform"):
         cand = lib.get(plat, [])
-        ri_win = ri_win_by_plat.get(plat, 500.0)
         if not cand:
             for _, f in g.iterrows():
                 rows.append({**f, "match_ik14": "", "match_name": "", "n_cand": 0, "score": np.nan})
             continue
         cmz = np.array([c["mz"] for c in cand]); cri = np.array([c["ri"] for c in cand])
+        cwin = np.array([ri_win_fn(plat, r) for r in cri])
         for _, f in g.iterrows():
             mz, ri = f["mz"], f["ri_norm"]; tol = mz * mz_ppm * 1e-6
             lo = np.searchsorted(cmz, mz - tol); hi = np.searchsorted(cmz, mz + tol)
-            scored = [(abs(cmz[i]-mz)/tol + abs(cri[i]-ri)/ri_win, i)
-                      for i in range(lo, hi) if abs(cri[i]-ri) <= ri_win]
+            scored = [(abs(cmz[i]-mz)/tol + abs(cri[i]-ri)/cwin[i], i)
+                      for i in range(lo, hi) if abs(cri[i]-ri) <= cwin[i]]
             if not scored:
                 rows.append({**f, "match_ik14": "", "match_name": "", "n_cand": 0, "score": np.nan})
                 continue
@@ -211,7 +229,7 @@ def match(cons, lib, mz_ppm, ri_win_by_plat, prefer_structured=True):
     return pd.DataFrame(rows)
 
 
-def score_against_gt(ann, gt_path, mz_ppm, ri_win_by_plat):
+def score_against_gt(ann, gt_path, mz_ppm, ri_win_fn):
     gt = defaultdict(list)
     with open(gt_path) as f:
         for r in csv.DictReader(f):
@@ -228,10 +246,9 @@ def score_against_gt(ann, gt_path, mz_ppm, ri_win_by_plat):
         sub = ann[ann.platform == plat]
         if sub.empty:
             continue
-        ri_win = ri_win_by_plat.get(plat, 500.0)
         amz = sub.mz.to_numpy(); ari = sub.ri_norm.to_numpy(); aik = sub.match_ik14.to_numpy()
         for mz, ri, gik in comps:
-            tol = mz * mz_ppm * 1e-6
+            tol = mz * mz_ppm * 1e-6; ri_win = ri_win_fn(plat, ri)
             sel = (np.abs(amz - mz) <= tol) & (np.abs(ari - ri) <= ri_win)
             if not sel.any():
                 fn += 1
@@ -269,6 +286,14 @@ def main():
                          "(finest; removes injection-to-injection drift before consensus -> "
                          "tighter consensus RI), per batch, or one per platform.")
     ap.add_argument("--batch-regex", default=r"(Set\d+)")
+    ap.add_argument("--adaptive-window", action="store_true",
+                    help="scale the RI match window by LOCAL anchor spacing: tight where "
+                         "anchors are dense (isomer precision), wide where sparse (recover "
+                         "RI-shift FNs). Window = clamp(alpha*local_anchor_gap, "
+                         "[rt-floor-sec, rt-cap-sec]*slope).")
+    ap.add_argument("--alpha", type=float, default=0.5, help="fraction of local anchor gap")
+    ap.add_argument("--rt-floor-sec", type=float, default=10.0)
+    ap.add_argument("--rt-cap-sec", type=float, default=60.0)
     ap.add_argument("--no-prefer-structured", action="store_true")
     ap.add_argument("--gt", default="")
     a = ap.parse_args()
@@ -292,19 +317,23 @@ def main():
     lib = load_library(Path(a.library)); anchors = load_anchor_points(Path(a.anchors))
     ladders, pooled, cov, pooled_pairs = build_batch_ladders(df, anchors, a.mz_ppm, amr)
     slope = ri_per_sec(pooled_pairs)
-    ri_win = {p: a.rt_win_sec * s for p, s in slope.items()}
     ri_tol = {p: a.rt_tol_sec * s for p, s in slope.items()}
+    anchor_ris = {p: np.array(sorted(ri for _, ri in pts)) for p, pts in anchors.items()}
+    ri_win_fn = make_ri_win_fn(slope, anchor_ris, a.adaptive_window,
+                               a.rt_win_sec, a.rt_floor_sec, a.alpha, a.rt_cap_sec)
     print(f"per-batch RI ladders: {len(ladders)} (anchor coverage med "
           f"{int(np.median(list(cov.values()))) if cov else 0}); RI/s slope: "
-          f"{ {p: round(s,1) for p,s in slope.items()} }", flush=True)
+          f"{ {p: round(s,1) for p,s in slope.items()} }; "
+          f"window={'adaptive(alpha=%.2f,[%g,%g]s)'%(a.alpha,a.rt_floor_sec,a.rt_cap_sec) if a.adaptive_window else '%gs fixed'%a.rt_win_sec}",
+          flush=True)
     df = normalise_ri(df, ladders, pooled)
     print(f"features normalised to RI: {len(df)}", flush=True)
     cons = consensus_features(df, a.mz_ppm, ri_tol, a.min_rep)
-    ann = match(cons, lib, a.mz_ppm, ri_win, prefer_structured=not a.no_prefer_structured)
+    ann = match(cons, lib, a.mz_ppm, ri_win_fn, prefer_structured=not a.no_prefer_structured)
     print(f"consensus {len(cons)}  annotated {int(ann.match_ik14.astype(bool).sum())}", flush=True)
     ann.to_csv(a.out, index=False); print(f"-> {a.out}", flush=True)
     if a.gt:
-        score_against_gt(ann, Path(a.gt), a.mz_ppm, ri_win)
+        score_against_gt(ann, Path(a.gt), a.mz_ppm, ri_win_fn)
 
 
 if __name__ == "__main__":
