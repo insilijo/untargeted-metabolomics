@@ -248,8 +248,12 @@ def main():
     ap.add_argument("--features", required=True); ap.add_argument("--library", required=True)
     ap.add_argument("--anchors", required=True); ap.add_argument("--out", required=True)
     ap.add_argument("--mz-ppm", type=float, default=20.0)
-    ap.add_argument("--rt-win-sec", type=float, default=30.0,
-                    help="RI match window, expressed in seconds (auto-scaled to RI per platform)")
+    ap.add_argument("--rt-win-sec", type=float, default=15.0,
+                    help="RI match window in seconds (auto-scaled to RI per platform). "
+                         "15s is the ST004581 sweet spot: vs 30s it lifts precision "
+                         "0.84->0.88 (separates ~30s-apart isomers e.g. beta-alanine/alanine) "
+                         "at ~flat recall; tighter than ~10s starts rejecting true peaks "
+                         "given current consensus-RT precision.")
     ap.add_argument("--rt-tol-sec", type=float, default=10.0,
                     help="consensus RI grouping, in seconds (auto-scaled)")
     ap.add_argument("--min-rep", type=int, default=2)
