@@ -264,7 +264,7 @@ def main():
     ap.add_argument("--anchor-min-rep", type=int, default=0,
                     help="0 = auto (1 for injection-level alignment, 2 otherwise)")
     ap.add_argument("--align-level", choices=["injection", "batch", "platform"],
-                    default="injection",
+                    default="batch",
                     help="RT-alignment grain: detect the anchor ladder per injection "
                          "(finest; removes injection-to-injection drift before consensus -> "
                          "tighter consensus RI), per batch, or one per platform.")
@@ -285,7 +285,7 @@ def main():
         df["batch"] = df.platform
     else:
         df["batch"] = df.source_file.str.extract(a.batch_regex, expand=False).fillna("all")
-    amr = a.anchor_min_rep or (1 if a.align_level == "injection" else 2)
+    amr = a.anchor_min_rep or (2 if a.align_level != "injection" else 1)
     print(f"features: {len(df)}  platforms {df.platform.nunique()}  "
           f"align={a.align_level} ({df.batch.nunique()} groups, anchor_min_rep={amr})", flush=True)
 
