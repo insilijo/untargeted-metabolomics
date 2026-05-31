@@ -379,6 +379,10 @@ def main():
                          "window true compounds (ST004581: F1 0.687->0.728, recall +0.09).")
     ap.add_argument("--composite-cap", type=float, default=3.0,
                     help="composite: max RT deviation (multiples of the RI window) to consider")
+    ap.add_argument("--no-densify-calibration", dest="densify_calibration", action="store_false",
+                    help="disable bootstrap densification of the RI->sec ladder with mass-unique "
+                         "library compounds (default on; lifts detectable GT 84%%->89%% on ST004581 "
+                         "by translating MAF RI->RT accurately, vs the sparse kit-panel ladder).")
     ap.add_argument("--no-adducts", dest="adducts", action="store_false",
                     help="expand each library compound to its expected adduct ions ([M+Na]+, "
                          "[M+NH4]+, [M+FA-H]-, ...) so compounds that ionize as a non-primary "
@@ -407,10 +411,24 @@ def main():
           f"align={a.align_level} ({df.batch.nunique()} groups, anchor_min_rep={amr})", flush=True)
 
     lib = load_library(Path(a.library)); anchors = load_anchor_points(Path(a.anchors))
+    # Bootstrap-densify the RI->sec ladder: union the kit-anchor seed with mass-unique
+    # LIBRARY compounds (unambiguous by mass, so detecting their peak gives a reliable
+    # (RI,sec) point — no GT). Kit seeds, library densifies. (build_rt_calibration logic.)
+    if a.densify_calibration:
+        cal_anchors = {p: list(pts) for p, pts in anchors.items()}
+        for plat, entries in lib.items():
+            mzs = np.array(sorted(c["mz"] for c in entries))
+            for c in entries:
+                tol = c["mz"] * a.mz_ppm * 1e-6
+                if (np.searchsorted(mzs, c["mz"]+tol) - np.searchsorted(mzs, c["mz"]-tol)) == 1:
+                    cal_anchors.setdefault(plat, []).append((c["mz"], c["ri"]))
+        print(f"densified calibration anchors: { {p: len(v) for p, v in cal_anchors.items()} }", flush=True)
+    else:
+        cal_anchors = anchors
     if a.adducts:
         lib = expand_library_adducts(lib)
         print(f"adduct-expanded library: { {p: len(v) for p, v in lib.items()} }", flush=True)
-    ladders, pooled, cov, pooled_pairs = build_batch_ladders(df, anchors, a.mz_ppm, amr)
+    ladders, pooled, cov, pooled_pairs = build_batch_ladders(df, cal_anchors, a.mz_ppm, amr)
     slope = ri_per_sec(pooled_pairs)
     ri_tol = {p: a.rt_tol_sec * s for p, s in slope.items()}
     anchor_ris = {p: np.array(sorted(ri for _, ri in pts)) for p, pts in anchors.items()}
