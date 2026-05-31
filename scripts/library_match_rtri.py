@@ -62,6 +62,35 @@ def load_library(path: Path) -> dict[str, list[dict]]:
     return lib
 
 
+# observed-ion offset from neutral M, per mode; primary (library ion) first.
+_ADDUCTS_NEG = [("[M-H]-", -1.007276), ("[M+FA-H]-", 44.998201), ("[M+Cl]-", 34.969402),
+                ("[M-H2O-H]-", -19.017841)]
+_ADDUCTS_POS = [("[M+H]+", 1.007276), ("[M+Na]+", 22.989218), ("[M+NH4]+", 18.033823),
+                ("[M+K]+", 38.963158), ("[M+H-H2O]+", -17.002740)]
+_PLAT_ADDUCTS = {"lc/ms neg": _ADDUCTS_NEG, "lc/ms pos early": _ADDUCTS_POS,
+                 "lc/ms pos late": _ADDUCTS_POS, "lc/ms polar": _ADDUCTS_POS}
+
+
+def expand_library_adducts(lib: dict) -> dict:
+    """Expand each compound into its expected adduct ions (sharing ik/ri/name).
+    The library m/z is the primary ion; neutral = mz - primary_offset; other ions
+    at neutral + offset. is_primary flags the original. Recovers compounds that
+    ionize as a non-primary adduct (a co-elution-confirmed recall lever)."""
+    out: dict[str, list[dict]] = {}
+    for plat, entries in lib.items():
+        adducts = _PLAT_ADDUCTS.get(plat)
+        rows = []
+        for c in entries:
+            if not adducts:
+                rows.append({**c, "adduct": "primary", "is_primary": True}); continue
+            neutral = c["mz"] - adducts[0][1]
+            for j, (nm, off) in enumerate(adducts):
+                rows.append({**c, "mz": neutral + off, "adduct": nm, "is_primary": j == 0})
+        rows.sort(key=lambda c: c["mz"])
+        out[plat] = rows
+    return out
+
+
 def load_anchor_points(path: Path) -> dict[str, list[tuple[float, float]]]:
     """Kit anchors as per-platform (mz, ri) — RT is detected per batch, not read."""
     pts: dict[str, list[tuple[float, float]]] = defaultdict(list)
@@ -232,7 +261,7 @@ def make_ri_win_fn(slope, anchor_ris, mode, fixed_sec, floor_sec, alpha, cap_sec
     return win
 
 
-def match(cons, lib, mz_ppm, ri_win_fn, prefer_structured=True, score_mode="gated", composite_cap=3.0):
+def match(cons, lib, mz_ppm, ri_win_fn, prefer_structured=True, score_mode="gated", composite_cap=3.0, adduct_penalty=0.5):
     rows = []
     for plat, g in cons.groupby("platform"):
         cand = lib.get(plat, [])
@@ -251,9 +280,11 @@ def match(cons, lib, mz_ppm, ri_win_fn, prefer_structured=True, score_mode="gate
                 for i in range(lo, hi):
                     drt = abs(cri[i]-ri)/cwin[i]
                     if drt > composite_cap: continue
-                    scored.append((((abs(cmz[i]-mz)/tol)**2 + drt**2)**0.5, i))
+                    pen = 0.0 if cand[i].get("is_primary", True) else adduct_penalty
+                    scored.append((((abs(cmz[i]-mz)/tol)**2 + drt**2)**0.5 + pen, i))
             else:
-                scored = [(abs(cmz[i]-mz)/tol + abs(cri[i]-ri)/cwin[i], i)
+                scored = [(abs(cmz[i]-mz)/tol + abs(cri[i]-ri)/cwin[i]
+                           + (0.0 if cand[i].get("is_primary", True) else adduct_penalty), i)
                           for i in range(lo, hi) if abs(cri[i]-ri) <= cwin[i]]
             if not scored:
                 rows.append({**f, "match_ik14": "", "match_name": "", "n_cand": 0, "score": np.nan})
@@ -280,23 +311,26 @@ def score_against_gt(ann, gt_path, mz_ppm, ri_win_fn):
             except (ValueError, KeyError):
                 continue
             gt[plat].append((mz, ri, ik14(r["inchikey"])))
-    tp = fp = fn = 0
+    # Adduct-aware, by InChIKey within the RI window (feature may sit at an adduct m/z).
+    # recall: GT compounds recovered. precision: of calls TO a study compound, fraction
+    # placed at the right RT (catches adduct/composite-induced mis-placement).
+    tp = fn = 0; pc_ok = pc_tot = 0
     for plat, comps in gt.items():
-        sub = ann[ann.platform == plat]
-        if sub.empty:
-            continue
-        amz = sub.mz.to_numpy(); ari = sub.ri_norm.to_numpy(); aik = sub.match_ik14.to_numpy()
-        for mz, ri, gik in comps:
-            tol = mz * mz_ppm * 1e-6; ri_win = ri_win_fn(plat, ri)
-            sel = (np.abs(amz - mz) <= tol) & (np.abs(ari - ri) <= ri_win)
-            if not sel.any():
-                fn += 1
-            elif gik in set(aik[sel]):
-                tp += 1
-            else:
-                fp += 1
-    P = tp/(tp+fp) if tp+fp else 0; R = tp/(tp+fn) if tp+fn else 0
-    print(f"[eval] TP {tp} FP {fp} FN {fn}  P {P:.3f} R {R:.3f} F1 {2*P*R/(P+R) if P+R else 0:.3f}", flush=True)
+        gt_ri = {}
+        for mz, ri, gik in comps: gt_ri.setdefault(gik, ri)
+        sub = ann[(ann.platform == plat) & (ann.match_ik14.astype(bool))]
+        ari = sub.ri_norm.to_numpy(); aik = sub.match_ik14.to_numpy()
+        for gik, ri in gt_ri.items():
+            ri_win = ri_win_fn(plat, ri)
+            if ((aik == gik) & (np.abs(ari - ri) <= ri_win)).any(): tp += 1
+            else: fn += 1
+        for k, rn in zip(aik, ari):           # precision: study-compound calls placed right?
+            if k in gt_ri:
+                pc_tot += 1
+                if abs(rn - gt_ri[k]) <= ri_win_fn(plat, gt_ri[k]): pc_ok += 1
+    R = tp/(tp+fn) if tp+fn else 0; P = pc_ok/pc_tot if pc_tot else 0
+    F1 = 2*P*R/(P+R) if P+R else 0
+    print(f"[eval] recall {R:.3f} ({tp}/{tp+fn})  precision {P:.3f} ({pc_ok}/{pc_tot})  F1 {F1:.3f}", flush=True)
 
 
 def main():
@@ -345,6 +379,13 @@ def main():
                          "window true compounds (ST004581: F1 0.687->0.728, recall +0.09).")
     ap.add_argument("--composite-cap", type=float, default=3.0,
                     help="composite: max RT deviation (multiples of the RI window) to consider")
+    ap.add_argument("--adducts", action="store_true",
+                    help="expand each library compound to its expected adduct ions ([M+Na]+, "
+                         "[M+NH4]+, [M+FA-H]-, ...) so compounds that ionize as a non-primary "
+                         "adduct still match. ST004581: ~47%% of primary-undetected compounds "
+                         "co-elute as an adduct. Primary ion preferred via --adduct-penalty.")
+    ap.add_argument("--adduct-penalty", type=float, default=0.5,
+                    help="distance penalty for matching a non-primary adduct ion")
     ap.add_argument("--no-prefer-structured", action="store_true")
     ap.add_argument("--gt", default="")
     a = ap.parse_args()
@@ -366,6 +407,9 @@ def main():
           f"align={a.align_level} ({df.batch.nunique()} groups, anchor_min_rep={amr})", flush=True)
 
     lib = load_library(Path(a.library)); anchors = load_anchor_points(Path(a.anchors))
+    if a.adducts:
+        lib = expand_library_adducts(lib)
+        print(f"adduct-expanded library: { {p: len(v) for p, v in lib.items()} }", flush=True)
     ladders, pooled, cov, pooled_pairs = build_batch_ladders(df, anchors, a.mz_ppm, amr)
     slope = ri_per_sec(pooled_pairs)
     ri_tol = {p: a.rt_tol_sec * s for p, s in slope.items()}
@@ -384,7 +428,7 @@ def main():
     print(f"features normalised to RI: {len(df)}", flush=True)
     cons = consensus_features(df, a.mz_ppm, ri_tol, a.min_rep)
     ann = match(cons, lib, a.mz_ppm, ri_win_fn, prefer_structured=not a.no_prefer_structured,
-                score_mode=a.score_mode, composite_cap=a.composite_cap)
+                score_mode=a.score_mode, composite_cap=a.composite_cap, adduct_penalty=a.adduct_penalty)
     print(f"consensus {len(cons)}  annotated {int(ann.match_ik14.astype(bool).sum())}", flush=True)
     ann.to_csv(a.out, index=False); print(f"-> {a.out}", flush=True)
     if a.gt:
