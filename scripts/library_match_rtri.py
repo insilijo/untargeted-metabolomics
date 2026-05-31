@@ -299,6 +299,49 @@ def match(cons, lib, mz_ppm, ri_win_fn, prefer_structured=True, score_mode="gate
     return pd.DataFrame(rows)
 
 
+def ordinal_reassign(ann, lib, mz_ppm, ri_win_fn):
+    """ORDINAL isomer assignment: for each shared-m/z isomer set (>=2 library compounds,
+    same m/z, distinct RIs), if we detect exactly as many RT clusters as there are
+    isomers, reassign them rank-to-rank (RT order <-> DD RI order). Uses only the
+    DD-established elution ORDER, not absolute RI precision (which we lack). Leaves
+    everything else untouched."""
+    ann = ann.reset_index(drop=True); ann["ordinal"] = False
+    n_fixed = 0
+    for plat in ann.platform.unique():
+        prim = [c for c in lib.get(plat, []) if c.get("is_primary", True) and c.get("ik14")]
+        if len(prim) < 2:
+            continue
+        prim.sort(key=lambda c: c["mz"]); pmz = np.array([c["mz"] for c in prim])
+        sub = ann.index[ann.platform == plat].to_numpy()
+        amz = ann.mz.to_numpy(); ari = ann.ri_norm.to_numpy()
+        i = 0; n = len(prim)
+        while i < n:
+            j = i + 1
+            while j < n and (pmz[j] - pmz[i]) <= pmz[i] * mz_ppm * 1e-6:
+                j += 1
+            # isomers in this m/z set: one (RI, ik, name) per distinct ik14
+            seen = {}
+            for m in prim[i:j]:
+                seen.setdefault(m["ik14"], (m["ri"], m["name"]))
+            if len(seen) >= 2:
+                isos = sorted((ri, ik, nm) for ik, (ri, nm) in seen.items())
+                mz0 = prim[i]["mz"]; tol = mz0 * mz_ppm * 1e-6
+                win = ri_win_fn(plat, float(np.mean([x[0] for x in isos])))
+                lo, hi = isos[0][0] - win, isos[-1][0] + win
+                sel = sub[(np.abs(amz[sub] - mz0) <= tol) & (ari[sub] >= lo) & (ari[sub] <= hi)]
+                if len(sel) == len(isos):                      # one detected cluster per isomer
+                    order = sel[np.argsort(ari[sel])]
+                    for k, ridx in enumerate(order):
+                        if ann.at[ridx, "match_ik14"] != isos[k][1]:
+                            n_fixed += 1
+                        ann.at[ridx, "match_ik14"] = isos[k][1]
+                        ann.at[ridx, "match_name"] = isos[k][2]
+                        ann.at[ridx, "ordinal"] = True
+            i = j
+    print(f"ordinal isomer reassignment: {n_fixed} cluster labels changed", flush=True)
+    return ann
+
+
 def score_against_gt(ann, gt_path, mz_ppm, ri_win_fn):
     gt = defaultdict(list)
     with open(gt_path) as f:
@@ -385,6 +428,11 @@ def main():
                          "(0.701->0.695 F1): recall is matching/isobar-limited here, not detection-"
                          "limited, so the extra-detected compounds are lost to isobaric assignment. "
                          "Off by default; useful when detection (not matching) is the bottleneck.")
+    ap.add_argument("--no-ordinal", dest="ordinal", action="store_false",
+                    help="disable ordinal isomer assignment (default on): for shared-m/z isomer "
+                         "sets where #detected RT clusters == #DD isomers, assign rank-to-rank "
+                         "(RT order <-> DD RI order) — uses the DD's established elution order, "
+                         "not absolute-RI precision we lack.")
     ap.add_argument("--no-adducts", dest="adducts", action="store_false",
                     help="expand each library compound to its expected adduct ions ([M+Na]+, "
                          "[M+NH4]+, [M+FA-H]-, ...) so compounds that ionize as a non-primary "
@@ -449,6 +497,8 @@ def main():
     cons = consensus_features(df, a.mz_ppm, ri_tol, a.min_rep)
     ann = match(cons, lib, a.mz_ppm, ri_win_fn, prefer_structured=not a.no_prefer_structured,
                 score_mode=a.score_mode, composite_cap=a.composite_cap, adduct_penalty=a.adduct_penalty)
+    if a.ordinal:
+        ann = ordinal_reassign(ann, lib, a.mz_ppm, ri_win_fn)
     print(f"consensus {len(cons)}  annotated {int(ann.match_ik14.astype(bool).sum())}", flush=True)
     ann.to_csv(a.out, index=False); print(f"-> {a.out}", flush=True)
     if a.gt:
