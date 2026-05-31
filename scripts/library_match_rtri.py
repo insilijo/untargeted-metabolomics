@@ -379,10 +379,12 @@ def main():
                          "window true compounds (ST004581: F1 0.687->0.728, recall +0.09).")
     ap.add_argument("--composite-cap", type=float, default=3.0,
                     help="composite: max RT deviation (multiples of the RI window) to consider")
-    ap.add_argument("--no-densify-calibration", dest="densify_calibration", action="store_false",
-                    help="disable bootstrap densification of the RI->sec ladder with mass-unique "
-                         "library compounds (default on; lifts detectable GT 84%%->89%% on ST004581 "
-                         "by translating MAF RI->RT accurately, vs the sparse kit-panel ladder).")
+    ap.add_argument("--densify-calibration", action="store_true",
+                    help="bootstrap-densify the RI->sec ladder with mass-unique library compounds. "
+                         "Lifts DETECTION (detectable GT 84%%->89%% on ST004581) but NOT recall "
+                         "(0.701->0.695 F1): recall is matching/isobar-limited here, not detection-"
+                         "limited, so the extra-detected compounds are lost to isobaric assignment. "
+                         "Off by default; useful when detection (not matching) is the bottleneck.")
     ap.add_argument("--no-adducts", dest="adducts", action="store_false",
                     help="expand each library compound to its expected adduct ions ([M+Na]+, "
                          "[M+NH4]+, [M+FA-H]-, ...) so compounds that ionize as a non-primary "
