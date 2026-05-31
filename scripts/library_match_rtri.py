@@ -372,14 +372,14 @@ def main():
                     help="spacing: fraction of local anchor gap; precision: multiple of RT spread")
     ap.add_argument("--rt-floor-sec", type=float, default=10.0)
     ap.add_argument("--rt-cap-sec", type=float, default=60.0)
-    ap.add_argument("--score-mode", choices=["gated", "composite"], default="composite",
+    ap.add_argument("--score-mode", choices=["gated", "composite"], default="gated",
                     help="gated: hard m/z AND RT windows. composite: no hard RT gate (loose "
                          "cap only), rank by Euclidean distance across normalized dims so a "
                          "strong m/z offsets a marginal RT. composite recovers just-outside-"
                          "window true compounds (ST004581: F1 0.687->0.728, recall +0.09).")
     ap.add_argument("--composite-cap", type=float, default=3.0,
                     help="composite: max RT deviation (multiples of the RI window) to consider")
-    ap.add_argument("--adducts", action="store_true",
+    ap.add_argument("--no-adducts", dest="adducts", action="store_false",
                     help="expand each library compound to its expected adduct ions ([M+Na]+, "
                          "[M+NH4]+, [M+FA-H]-, ...) so compounds that ionize as a non-primary "
                          "adduct still match. ST004581: ~47%% of primary-undetected compounds "
