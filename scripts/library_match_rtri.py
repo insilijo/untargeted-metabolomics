@@ -232,7 +232,7 @@ def make_ri_win_fn(slope, anchor_ris, mode, fixed_sec, floor_sec, alpha, cap_sec
     return win
 
 
-def match(cons, lib, mz_ppm, ri_win_fn, prefer_structured=True):
+def match(cons, lib, mz_ppm, ri_win_fn, prefer_structured=True, score_mode="gated", composite_cap=3.0):
     rows = []
     for plat, g in cons.groupby("platform"):
         cand = lib.get(plat, [])
@@ -245,8 +245,16 @@ def match(cons, lib, mz_ppm, ri_win_fn, prefer_structured=True):
         for _, f in g.iterrows():
             mz, ri = f["mz"], f["ri_norm"]; tol = mz * mz_ppm * 1e-6
             lo = np.searchsorted(cmz, mz - tol); hi = np.searchsorted(cmz, mz + tol)
-            scored = [(abs(cmz[i]-mz)/tol + abs(cri[i]-ri)/cwin[i], i)
-                      for i in range(lo, hi) if abs(cri[i]-ri) <= cwin[i]]
+            if score_mode == "composite":
+                # soft: no hard RT gate (loose cap only); Euclidean distance across dims
+                scored = []
+                for i in range(lo, hi):
+                    drt = abs(cri[i]-ri)/cwin[i]
+                    if drt > composite_cap: continue
+                    scored.append((((abs(cmz[i]-mz)/tol)**2 + drt**2)**0.5, i))
+            else:
+                scored = [(abs(cmz[i]-mz)/tol + abs(cri[i]-ri)/cwin[i], i)
+                          for i in range(lo, hi) if abs(cri[i]-ri) <= cwin[i]]
             if not scored:
                 rows.append({**f, "match_ik14": "", "match_name": "", "n_cand": 0, "score": np.nan})
                 continue
@@ -308,7 +316,11 @@ def main():
                          "for BOTH recall and isomer precision).")
     ap.add_argument("--rt-tol-sec", type=float, default=10.0,
                     help="consensus RI grouping, in seconds (auto-scaled)")
-    ap.add_argument("--min-rep", type=int, default=2)
+    ap.add_argument("--min-rep", type=int, default=2,
+                    help="min injections a consensus peak must appear in. 1 recovers minor "
+                         "real clusters (ST004581 full set: F1 0.565->0.596, recall +0.045, "
+                         "precision held) at 3x consensus count — recommended for targeted "
+                         "library matching; keep >=2 for open untargeted to suppress singletons.")
     ap.add_argument("--anchor-min-rep", type=int, default=0,
                     help="0 = auto (1 for injection-level alignment, 2 otherwise)")
     ap.add_argument("--align-level", choices=["injection", "batch", "platform"],
@@ -326,6 +338,13 @@ def main():
                     help="spacing: fraction of local anchor gap; precision: multiple of RT spread")
     ap.add_argument("--rt-floor-sec", type=float, default=10.0)
     ap.add_argument("--rt-cap-sec", type=float, default=60.0)
+    ap.add_argument("--score-mode", choices=["gated", "composite"], default="composite",
+                    help="gated: hard m/z AND RT windows. composite: no hard RT gate (loose "
+                         "cap only), rank by Euclidean distance across normalized dims so a "
+                         "strong m/z offsets a marginal RT. composite recovers just-outside-"
+                         "window true compounds (ST004581: F1 0.687->0.728, recall +0.09).")
+    ap.add_argument("--composite-cap", type=float, default=3.0,
+                    help="composite: max RT deviation (multiples of the RI window) to consider")
     ap.add_argument("--no-prefer-structured", action="store_true")
     ap.add_argument("--gt", default="")
     a = ap.parse_args()
@@ -364,7 +383,8 @@ def main():
     df = normalise_ri(df, ladders, pooled)
     print(f"features normalised to RI: {len(df)}", flush=True)
     cons = consensus_features(df, a.mz_ppm, ri_tol, a.min_rep)
-    ann = match(cons, lib, a.mz_ppm, ri_win_fn, prefer_structured=not a.no_prefer_structured)
+    ann = match(cons, lib, a.mz_ppm, ri_win_fn, prefer_structured=not a.no_prefer_structured,
+                score_mode=a.score_mode, composite_cap=a.composite_cap)
     print(f"consensus {len(cons)}  annotated {int(ann.match_ik14.astype(bool).sum())}", flush=True)
     ann.to_csv(a.out, index=False); print(f"-> {a.out}", flush=True)
     if a.gt:
