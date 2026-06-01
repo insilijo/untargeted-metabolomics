@@ -566,12 +566,14 @@ def main():
                          "window true compounds (ST004581: F1 0.687->0.728, recall +0.09).")
     ap.add_argument("--composite-cap", type=float, default=3.0,
                     help="composite: max RT deviation (multiples of the RI window) to consider")
-    ap.add_argument("--densify-calibration", action="store_true",
-                    help="bootstrap-densify the RI->sec ladder with mass-unique library compounds. "
-                         "Lifts DETECTION (detectable GT 84%%->89%% on ST004581) but NOT recall "
-                         "(0.701->0.695 F1): recall is matching/isobar-limited here, not detection-"
-                         "limited, so the extra-detected compounds are lost to isobaric assignment. "
-                         "Off by default; useful when detection (not matching) is the bottleneck.")
+    ap.add_argument("--no-densify-calibration", dest="densify_calibration", action="store_false",
+                    help="disable bootstrap-densifying the RI->sec ladder with mass-unique library "
+                         "compounds (DEFAULT ON). Densify fills sparse anchor regions (polar's ~13 "
+                         "anchors, pos-late's RI gaps) with reliable mass-unique (sec,RI) points "
+                         "from the library itself (no GT). With name-keying it is a clear win — "
+                         "detection gains now flow into recall instead of dying in the ik14 collapse "
+                         "(F1 0.762->0.789, recall +30, precision 0.981->0.988 on ST004581). Pairs "
+                         "with --no-robust-ladder's outlier rejection (more points -> robust matters).")
     ap.add_argument("--no-ordinal", dest="ordinal", action="store_false",
                     help="disable ordinal isomer assignment (default on): for shared-m/z isomer "
                          "sets where #detected RT clusters == #DD isomers, assign rank-to-rank "
