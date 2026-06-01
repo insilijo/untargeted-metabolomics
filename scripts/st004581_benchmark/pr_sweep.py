@@ -127,21 +127,23 @@ def main():
     hdr = (f"{'win_s':>5} {'mode':>8} | {'recall':>6} {'prec*':>6} {'F1':>6} | "
            f"{'tp':>4}/{ngt:<4} | {'calls':>5} {'->GT':>5} {'->nonGT':>7} {'%nonGT':>6}")
     print(hdr); print("-"*len(hdr), flush=True)
-    for win in WINDOWS:
-        ri_win_fn = M.make_ri_win_fn(slope, anchor_ris, "fixed", float(win), 10.0, 0.5, 60.0, {})
-        for mode, qmap in [("base", {}), ("dual-rt", qsrr_by_ik)]:
-            for cand in lib.values():
-                for c in cand:
-                    if mode == "dual-rt":
-                        c["ri_qsrr"] = c["_q"]
-                    else:
-                        c.pop("ri_qsrr", None)
-            ann = M.match(cons, lib, MZ_PPM, ri_win_fn, prefer_structured=True, score_mode="gated")
-            r = full_score(ann, gt, ri_win_fn, qmap)
-            pct = 100*r["n_call_nongt"]/r["n_calls"] if r["n_calls"] else 0
-            print(f"{win:>5} {mode:>8} | {r['R']:>6.3f} {r['P']:>6.3f} {r['F1']:>6.3f} | "
-                  f"{r['tp']:>4}/{r['ngt']:<4} | {r['n_calls']:>5} {r['n_call_gt']:>5} "
-                  f"{r['n_call_nongt']:>7} {pct:>5.0f}%", flush=True)
+    for sm in ["gated", "composite"]:
+        print(f"\n### score-mode = {sm}", flush=True)
+        for win in WINDOWS:
+            ri_win_fn = M.make_ri_win_fn(slope, anchor_ris, "fixed", float(win), 10.0, 0.5, 60.0, {})
+            for mode, qmap in [("base", {}), ("dual-rt", qsrr_by_ik)]:
+                for cand in lib.values():
+                    for c in cand:
+                        if mode == "dual-rt":
+                            c["ri_qsrr"] = c["_q"]
+                        else:
+                            c.pop("ri_qsrr", None)
+                ann = M.match(cons, lib, MZ_PPM, ri_win_fn, prefer_structured=True, score_mode=sm)
+                r = full_score(ann, gt, ri_win_fn, qmap)
+                pct = 100*r["n_call_nongt"]/r["n_calls"] if r["n_calls"] else 0
+                print(f"{win:>5} {mode:>8} | {r['R']:>6.3f} {r['P']:>6.3f} {r['F1']:>6.3f} | "
+                      f"{r['tp']:>4}/{r['ngt']:<4} | {r['n_calls']:>5} {r['n_call_gt']:>5} "
+                      f"{r['n_call_nongt']:>7} {pct:>5.0f}%", flush=True)
     print("\n* prec = identity-restricted (pc_ok/pc_tot): of calls to a GT compound, "
           "fraction at right RT. Calls to non-GT DD compounds are NOT counted as FP "
           "(open-world: can't verify). '%nonGT' = share of all calls that are unverifiable.")
