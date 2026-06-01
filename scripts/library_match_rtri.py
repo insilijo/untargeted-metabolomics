@@ -164,19 +164,28 @@ def fit_qsrr_ri(cons, lib, smi, mz_ppm):
 
 
 def attach_qsrr_ri(lib, models, smi):
-    """Attach c['ri_qsrr'] = QSRR-predicted observed ri_norm for each candidate."""
+    """Attach c['ri_qsrr'] = QSRR-predicted observed ri_norm. Descriptors/predictions
+    are computed once per unique ik14 per platform (batched), then mapped to all ions."""
     n = 0
     for plat, cand in lib.items():
         mdl = models.get(plat)
         if mdl is None:
             continue
+        uniq = {}
         for c in cand:
-            s = smi.get(c.get("ik14", ""))
-            d = _mol_desc(s) if s else None
-            c["ri_qsrr"] = float(mdl.predict([d])[0]) if d is not None else None
-            if c["ri_qsrr"] is not None:
-                n += 1
-    print(f"  QSRR ri attached to {n} candidate ions", flush=True)
+            k = c.get("ik14", "")
+            if k and k not in uniq and smi.get(k):
+                d = _mol_desc(smi[k])
+                if d is not None: uniq[k] = d
+        if uniq:
+            keys = list(uniq); preds = mdl.predict([uniq[k] for k in keys])
+            pred_by_ik = {k: float(p) for k, p in zip(keys, preds)}
+        else:
+            pred_by_ik = {}
+        for c in cand:
+            c["ri_qsrr"] = pred_by_ik.get(c.get("ik14", ""))
+            if c["ri_qsrr"] is not None: n += 1
+    print(f"  QSRR ri attached to {n} candidate ions ({sum(len({c['ik14'] for c in cand if c.get('ri_qsrr') is not None}) for cand in lib.values())} unique compounds)", flush=True)
 
 
 def load_anchor_points(path: Path) -> dict[str, list[tuple[float, float]]]:
