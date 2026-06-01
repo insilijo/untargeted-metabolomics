@@ -227,7 +227,7 @@ def _detect_rt(fmz, frt, fint, fsrc, mz, mz_ppm, min_rep):
 
 
 def build_batch_ladders(features: pd.DataFrame, anchors: dict, mz_ppm: float,
-                        anchor_min_rep: int):
+                        anchor_min_rep: int, robust: bool = True):
     """Per (platform, batch) monotone seconds->RI calibrator from detected anchors.
     Falls back to a platform-global ladder when a batch has too few anchors."""
     ladders, cov = {}, {}
@@ -245,10 +245,10 @@ def build_batch_ladders(features: pd.DataFrame, anchors: dict, mz_ppm: float,
             if sec is not None:
                 pairs.append((sec, ri)); pooled[plat].append((sec, ri))
         cov[(plat, batch)] = len(pairs)
-        lad = _fit_sec_to_ri(pairs)
+        lad = _fit_sec_to_ri(pairs, robust)
         if lad is not None:
             ladders[(plat, batch)] = lad
-    pooled_lad = {p: _fit_sec_to_ri(v) for p, v in pooled.items()}
+    pooled_lad = {p: _fit_sec_to_ri(v, robust) for p, v in pooled.items()}
     return ladders, pooled_lad, cov, pooled
 
 
@@ -265,16 +265,34 @@ def ri_per_sec(pooled_pairs: dict) -> dict[str, float]:
     return slope
 
 
-def _fit_sec_to_ri(pairs):
+def _fit_sec_to_ri(pairs, robust=True):
     if len(pairs) < 3:
         return None
     agg = defaultdict(list)
     for sec, ri in pairs:
         agg[round(sec, 1)].append(ri)
-    secs = sorted(agg); ris = [float(np.median(agg[s])) for s in secs]
+    secs = np.array(sorted(agg), float)
+    ris = np.array([float(np.median(agg[s])) for s in secs], float)
+    if robust and len(secs) >= 6:
+        # Reject misdetected anchors: the sec->RI ladder is monotone, so an anchor
+        # whose detected RT puts its RI grossly off the monotone trend is a wrong-peak
+        # pick (an isobaric interferent more intense than the standard). Drop it before
+        # the PCHIP wiggles through it. Leak-free — uses only anchor self-consistency.
+        try:
+            from sklearn.isotonic import IsotonicRegression
+            pred = IsotonicRegression(increasing=True, out_of_bounds="clip").fit(secs, ris).predict(secs)
+            resid = np.abs(ris - pred); mad = float(np.median(resid))
+            span = (secs[-1] - secs[0]) or 1.0
+            slope = abs((pred[-1] - pred[0]) / span)       # robust monotone slope
+            thr = max(6.0 * mad, slope * 30.0)             # 6*MAD or 30s-equivalent RI
+            keep = resid <= thr
+            if 3 <= keep.sum() < len(secs):
+                secs, ris = secs[keep], ris[keep]
+        except Exception:
+            pass
     if len(secs) < 3:
         return None
-    return PchipInterpolator(np.array(secs, float), np.array(ris, float), extrapolate=True)
+    return PchipInterpolator(secs, ris, extrapolate=True)
 
 
 def normalise_ri(features, ladders, pooled_lad):
@@ -575,6 +593,12 @@ def main():
     ap.add_argument("--universe", default="/root/SQuID-INC/data/processed/compound_universe.csv",
                     help="compound_universe.csv for ik14->SMILES resolution (dual-rt)")
     ap.add_argument("--no-prefer-structured", action="store_true")
+    ap.add_argument("--no-robust-ladder", dest="robust_ladder", action="store_false",
+                    help="disable robust anchor outlier rejection in the sec->RI ladder "
+                         "(default on): drop anchors whose detected RT puts their RI grossly "
+                         "off the monotone trend (wrong-peak picks / isobaric interferents) "
+                         "before fitting PCHIP. Leak-free; cleans the catastrophic ladder "
+                         "outliers seen on pos-late (LOO max 9347s).")
     ap.add_argument("--id-key", choices=["name", "inchikey"], default="name",
                     help="identity for matching/scoring. 'name' (default): Metabolon "
                          "biochemical name (incl. (1)/(2)/* isomer suffixes) — populated on "
@@ -618,7 +642,7 @@ def main():
     if a.adducts:
         lib = expand_library_adducts(lib)
         print(f"adduct-expanded library: { {p: len(v) for p, v in lib.items()} }", flush=True)
-    ladders, pooled, cov, pooled_pairs = build_batch_ladders(df, cal_anchors, a.mz_ppm, amr)
+    ladders, pooled, cov, pooled_pairs = build_batch_ladders(df, cal_anchors, a.mz_ppm, amr, a.robust_ladder)
     slope = ri_per_sec(pooled_pairs)
     ri_tol = {p: a.rt_tol_sec * s for p, s in slope.items()}
     anchor_ris = {p: np.array(sorted(ri for _, ri in pts)) for p, pts in anchors.items()}
