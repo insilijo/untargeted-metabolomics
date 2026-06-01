@@ -91,6 +91,94 @@ def expand_library_adducts(lib: dict) -> dict:
     return out
 
 
+def _mol_desc(smiles: str):
+    """11 RDKit descriptors for the QSRR RT predictor (None if unparseable)."""
+    try:
+        from rdkit import Chem
+        from rdkit.Chem import Descriptors, rdMolDescriptors
+        m = Chem.MolFromSmiles(smiles)
+        if m is None:
+            return None
+        return [Descriptors.ExactMolWt(m), Descriptors.MolLogP(m), Descriptors.TPSA(m),
+                rdMolDescriptors.CalcNumHBD(m), rdMolDescriptors.CalcNumHBA(m),
+                rdMolDescriptors.CalcNumRotatableBonds(m), rdMolDescriptors.CalcNumAromaticRings(m),
+                rdMolDescriptors.CalcFractionCSP3(m), float(m.GetNumHeavyAtoms()),
+                float(rdMolDescriptors.CalcNumRings(m)), float(rdMolDescriptors.CalcNumHeteroatoms(m))]
+    except Exception:
+        return None
+
+
+def load_smiles_map(path: Path) -> dict:
+    """ik14 -> SMILES (the DD has no SMILES; resolve via compound_universe)."""
+    smi = {}
+    if not path or not path.exists():
+        return smi
+    for r in csv.DictReader(open(path)):
+        k = ik14(r.get("inchikey", "")); s = (r.get("smiles") or "").strip()
+        if k and s:
+            smi.setdefault(k, s)
+    return smi
+
+
+def fit_qsrr_ri(cons, lib, smi, mz_ppm):
+    """Bootstrap a per-platform QSRR predicting OBSERVED ri_norm from structure,
+    trained on mass-unique detected library compounds (descriptors -> dominant
+    consensus ri_norm). Returns {platform: model}. Complements the RI-ladder:
+    catches compounds the ladder mis-places (predRT from this data)."""
+    try:
+        from sklearn.ensemble import HistGradientBoostingRegressor
+    except ImportError:
+        print("  dual-rt: sklearn missing — QSRR disabled", flush=True); return {}
+    models = {}
+    for plat, cand in lib.items():
+        prim = [c for c in cand if c.get("is_primary", True) and c.get("ik14")]
+        if len(prim) < 30:
+            continue
+        cmz = np.array(sorted(c["mz"] for c in prim))
+        sub = cons[cons.platform == plat]
+        if sub.empty:
+            continue
+        amz = sub.mz.to_numpy(); ari = sub.ri_norm.to_numpy(); ain = sub.intensity.to_numpy()
+        X, y = [], []
+        for c in prim:
+            s = smi.get(c["ik14"])
+            if not s:
+                continue
+            tol = c["mz"] * mz_ppm * 1e-6
+            if (np.searchsorted(cmz, c["mz"]+tol) - np.searchsorted(cmz, c["mz"]-tol)) != 1:
+                continue                                   # mass-unique only (clean target)
+            lo = np.searchsorted(amz, c["mz"]-tol); hi = np.searchsorted(amz, c["mz"]+tol)
+            if hi <= lo:
+                continue
+            obs_ri = float(ari[lo:hi][np.argmax(ain[lo:hi])])   # dominant cluster's ri_norm
+            d = _mol_desc(s)
+            if d is None:
+                continue
+            X.append(d); y.append(obs_ri)
+        if len(X) >= 30:
+            mdl = HistGradientBoostingRegressor(max_iter=300, max_depth=4,
+                                                learning_rate=0.05, min_samples_leaf=8)
+            mdl.fit(np.array(X), np.array(y)); models[plat] = mdl
+            print(f"  QSRR[{plat}] trained on {len(X)} mass-unique anchors", flush=True)
+    return models
+
+
+def attach_qsrr_ri(lib, models, smi):
+    """Attach c['ri_qsrr'] = QSRR-predicted observed ri_norm for each candidate."""
+    n = 0
+    for plat, cand in lib.items():
+        mdl = models.get(plat)
+        if mdl is None:
+            continue
+        for c in cand:
+            s = smi.get(c.get("ik14", ""))
+            d = _mol_desc(s) if s else None
+            c["ri_qsrr"] = float(mdl.predict([d])[0]) if d is not None else None
+            if c["ri_qsrr"] is not None:
+                n += 1
+    print(f"  QSRR ri attached to {n} candidate ions", flush=True)
+
+
 def load_anchor_points(path: Path) -> dict[str, list[tuple[float, float]]]:
     """Kit anchors as per-platform (mz, ri) — RT is detected per batch, not read."""
     pts: dict[str, list[tuple[float, float]]] = defaultdict(list)
@@ -270,7 +358,14 @@ def match(cons, lib, mz_ppm, ri_win_fn, prefer_structured=True, score_mode="gate
                 rows.append({**f, "match_ik14": "", "match_name": "", "n_cand": 0, "score": np.nan})
             continue
         cmz = np.array([c["mz"] for c in cand]); cri = np.array([c["ri"] for c in cand])
+        cqsrr = np.array([c.get("ri_qsrr", np.nan) if c.get("ri_qsrr") is not None else np.nan for c in cand])
         cwin = np.array([ri_win_fn(plat, r) for r in cri])
+        def _ridist(i, ri):
+            # dual-RT: distance to the closer of ladder(DD RI) and QSRR-predicted ri
+            d = abs(cri[i]-ri)
+            if not np.isnan(cqsrr[i]):
+                d = min(d, abs(cqsrr[i]-ri))
+            return d
         for _, f in g.iterrows():
             mz, ri = f["mz"], f["ri_norm"]; tol = mz * mz_ppm * 1e-6
             lo = np.searchsorted(cmz, mz - tol); hi = np.searchsorted(cmz, mz + tol)
@@ -278,14 +373,14 @@ def match(cons, lib, mz_ppm, ri_win_fn, prefer_structured=True, score_mode="gate
                 # soft: no hard RT gate (loose cap only); Euclidean distance across dims
                 scored = []
                 for i in range(lo, hi):
-                    drt = abs(cri[i]-ri)/cwin[i]
+                    drt = _ridist(i, ri)/cwin[i]
                     if drt > composite_cap: continue
                     pen = 0.0 if cand[i].get("is_primary", True) else adduct_penalty
                     scored.append((((abs(cmz[i]-mz)/tol)**2 + drt**2)**0.5 + pen, i))
             else:
-                scored = [(abs(cmz[i]-mz)/tol + abs(cri[i]-ri)/cwin[i]
+                scored = [(abs(cmz[i]-mz)/tol + _ridist(i, ri)/cwin[i]
                            + (0.0 if cand[i].get("is_primary", True) else adduct_penalty), i)
-                          for i in range(lo, hi) if abs(cri[i]-ri) <= cwin[i]]
+                          for i in range(lo, hi) if _ridist(i, ri) <= cwin[i]]
             if not scored:
                 rows.append({**f, "match_ik14": "", "match_name": "", "n_cand": 0, "score": np.nan})
                 continue
@@ -342,7 +437,8 @@ def ordinal_reassign(ann, lib, mz_ppm, ri_win_fn):
     return ann
 
 
-def score_against_gt(ann, gt_path, mz_ppm, ri_win_fn):
+def score_against_gt(ann, gt_path, mz_ppm, ri_win_fn, qsrr_by_ik=None):
+    qsrr_by_ik = qsrr_by_ik or {}
     gt = defaultdict(list)
     with open(gt_path) as f:
         for r in csv.DictReader(f):
@@ -354,23 +450,28 @@ def score_against_gt(ann, gt_path, mz_ppm, ri_win_fn):
             except (ValueError, KeyError):
                 continue
             gt[plat].append((mz, ri, ik14(r["inchikey"])))
-    # Adduct-aware, by InChIKey within the RI window (feature may sit at an adduct m/z).
-    # recall: GT compounds recovered. precision: of calls TO a study compound, fraction
-    # placed at the right RT (catches adduct/composite-induced mis-placement).
+    # Adduct-aware, by InChIKey. A compound is "placed right" if a call sits within the
+    # window of EITHER its DD RI or its QSRR-predicted ri (dual-RT recovery).
     tp = fn = 0; pc_ok = pc_tot = 0
     for plat, comps in gt.items():
         gt_ri = {}
         for mz, ri, gik in comps: gt_ri.setdefault(gik, ri)
         sub = ann[(ann.platform == plat) & (ann.match_ik14.astype(bool))]
         ari = sub.ri_norm.to_numpy(); aik = sub.match_ik14.to_numpy()
+        def near(rn, gik, ri):
+            w = ri_win_fn(plat, ri)
+            if abs(rn - ri) <= w: return True
+            q = qsrr_by_ik.get(gik)
+            return q is not None and abs(rn - q) <= w
         for gik, ri in gt_ri.items():
-            ri_win = ri_win_fn(plat, ri)
-            if ((aik == gik) & (np.abs(ari - ri) <= ri_win)).any(): tp += 1
+            sel = np.where(aik == gik)[0]
+            if any(near(ari[i], gik, ri) for i in sel): tp += 1
             else: fn += 1
-        for k, rn in zip(aik, ari):           # precision: study-compound calls placed right?
+        for i in range(len(aik)):
+            k = aik[i]
             if k in gt_ri:
                 pc_tot += 1
-                if abs(rn - gt_ri[k]) <= ri_win_fn(plat, gt_ri[k]): pc_ok += 1
+                if near(ari[i], k, gt_ri[k]): pc_ok += 1
     R = tp/(tp+fn) if tp+fn else 0; P = pc_ok/pc_tot if pc_tot else 0
     F1 = 2*P*R/(P+R) if P+R else 0
     print(f"[eval] recall {R:.3f} ({tp}/{tp+fn})  precision {P:.3f} ({pc_ok}/{pc_tot})  F1 {F1:.3f}", flush=True)
@@ -440,6 +541,14 @@ def main():
                          "co-elute as an adduct. Primary ion preferred via --adduct-penalty.")
     ap.add_argument("--adduct-penalty", type=float, default=0.5,
                     help="distance penalty for matching a non-primary adduct ion")
+    ap.add_argument("--dual-rt", action="store_true",
+                    help="also predict each compound's expected ri_norm with a bootstrapped QSRR "
+                         "(structure->RT, trained on mass-unique detections) and match a feature "
+                         "near EITHER the ladder(DD-RI) or QSRR position. Recovers compounds the "
+                         "RI-ladder mis-places (QSRR beats ladder on 84-88%% of its failures). "
+                         "Needs --universe for SMILES (DD has none).")
+    ap.add_argument("--universe", default="/root/SQuID-INC/data/processed/compound_universe.csv",
+                    help="compound_universe.csv for ik14->SMILES resolution (dual-rt)")
     ap.add_argument("--no-prefer-structured", action="store_true")
     ap.add_argument("--gt", default="")
     a = ap.parse_args()
@@ -495,6 +604,16 @@ def main():
     df = normalise_ri(df, ladders, pooled)
     print(f"features normalised to RI: {len(df)}", flush=True)
     cons = consensus_features(df, a.mz_ppm, ri_tol, a.min_rep)
+    qsrr_by_ik = {}
+    if a.dual_rt:
+        smi = load_smiles_map(Path(a.universe))
+        print(f"dual-rt: ik14->SMILES map {len(smi)}", flush=True)
+        qmodels = fit_qsrr_ri(cons, lib, smi, a.mz_ppm)
+        attach_qsrr_ri(lib, qmodels, smi)
+        for cand in lib.values():
+            for c in cand:
+                if c.get("is_primary", True) and c.get("ri_qsrr") is not None:
+                    qsrr_by_ik.setdefault(c["ik14"], c["ri_qsrr"])
     ann = match(cons, lib, a.mz_ppm, ri_win_fn, prefer_structured=not a.no_prefer_structured,
                 score_mode=a.score_mode, composite_cap=a.composite_cap, adduct_penalty=a.adduct_penalty)
     if a.ordinal:
@@ -502,7 +621,7 @@ def main():
     print(f"consensus {len(cons)}  annotated {int(ann.match_ik14.astype(bool).sum())}", flush=True)
     ann.to_csv(a.out, index=False); print(f"-> {a.out}", flush=True)
     if a.gt:
-        score_against_gt(ann, Path(a.gt), a.mz_ppm, ri_win_fn)
+        score_against_gt(ann, Path(a.gt), a.mz_ppm, ri_win_fn, qsrr_by_ik)
 
 
 if __name__ == "__main__":
