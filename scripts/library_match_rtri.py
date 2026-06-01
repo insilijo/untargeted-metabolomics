@@ -33,6 +33,15 @@ from scipy.interpolate import PchipInterpolator
 DEFAULT_PREFIX_MAP = {"Method1": "lc/ms pos early", "Method2": "lc/ms pos late",
                       "Method3": "lc/ms neg", "Method4": "lc/ms polar"}
 ik14 = lambda s: (s or "")[:14]
+_norm = lambda s: "".join(ch for ch in (s or "").lower() if ch.isalnum())
+
+
+def cid_of(c, id_key):
+    """Stable identity for a library candidate. 'name' is Metabolon's resolved
+    identity (incl. (1)/(2)/* isomer suffixes) and is populated on ~all rows, whereas
+    InChIKey is blank on ~47% of the public DD — so 'name' is the correct join key
+    against the MAF (both are Metabolon products; ~99% name overlap)."""
+    return c.get("ik14", "") if id_key == "inchikey" else _norm(c.get("name", ""))
 
 
 def _col(row, *names):
@@ -358,13 +367,13 @@ def make_ri_win_fn(slope, anchor_ris, mode, fixed_sec, floor_sec, alpha, cap_sec
     return win
 
 
-def match(cons, lib, mz_ppm, ri_win_fn, prefer_structured=True, score_mode="gated", composite_cap=3.0, adduct_penalty=0.5):
+def match(cons, lib, mz_ppm, ri_win_fn, prefer_structured=True, score_mode="gated", composite_cap=3.0, adduct_penalty=0.5, id_key="name"):
     rows = []
     for plat, g in cons.groupby("platform"):
         cand = lib.get(plat, [])
         if not cand:
             for _, f in g.iterrows():
-                rows.append({**f, "match_ik14": "", "match_name": "", "n_cand": 0, "score": np.nan})
+                rows.append({**f, "match_ik14": "", "match_name": "", "match_id": "", "n_cand": 0, "score": np.nan})
             continue
         cmz = np.array([c["mz"] for c in cand]); cri = np.array([c["ri"] for c in cand])
         cqsrr = np.array([c.get("ri_qsrr", np.nan) if c.get("ri_qsrr") is not None else np.nan for c in cand])
@@ -391,19 +400,20 @@ def match(cons, lib, mz_ppm, ri_win_fn, prefer_structured=True, score_mode="gate
                            + (0.0 if cand[i].get("is_primary", True) else adduct_penalty), i)
                           for i in range(lo, hi) if _ridist(i, ri) <= cwin[i]]
             if not scored:
-                rows.append({**f, "match_ik14": "", "match_name": "", "n_cand": 0, "score": np.nan})
+                rows.append({**f, "match_ik14": "", "match_name": "", "match_id": "", "n_cand": 0, "score": np.nan})
                 continue
             scored.sort(); pool = scored
             if prefer_structured:
-                s = [x for x in scored if cand[x[1]]["ik14"]]
+                s = [x for x in scored if cid_of(cand[x[1]], id_key)]
                 if s: pool = s
             bc = cand[pool[0][1]]
             rows.append({**f, "match_ik14": bc["ik14"], "match_name": bc["name"],
+                         "match_id": cid_of(bc, id_key),
                          "n_cand": len(scored), "score": round(pool[0][0], 4)})
     return pd.DataFrame(rows)
 
 
-def ordinal_reassign(ann, lib, mz_ppm, ri_win_fn):
+def ordinal_reassign(ann, lib, mz_ppm, ri_win_fn, id_key="name"):
     """ORDINAL isomer assignment: for each shared-m/z isomer set (>=2 library compounds,
     same m/z, distinct RIs), if we detect exactly as many RT clusters as there are
     isomers, reassign them rank-to-rank (RT order <-> DD RI order). Uses only the
@@ -440,14 +450,16 @@ def ordinal_reassign(ann, lib, mz_ppm, ri_win_fn):
                             n_fixed += 1
                         ann.at[ridx, "match_ik14"] = isos[k][1]
                         ann.at[ridx, "match_name"] = isos[k][2]
+                        ann.at[ridx, "match_id"] = (isos[k][1] if id_key == "inchikey"
+                                                    else _norm(isos[k][2]))
                         ann.at[ridx, "ordinal"] = True
             i = j
     print(f"ordinal isomer reassignment: {n_fixed} cluster labels changed", flush=True)
     return ann
 
 
-def score_against_gt(ann, gt_path, mz_ppm, ri_win_fn, qsrr_by_ik=None):
-    qsrr_by_ik = qsrr_by_ik or {}
+def score_against_gt(ann, gt_path, mz_ppm, ri_win_fn, qsrr_by_id=None, id_key="name"):
+    qsrr_by_id = qsrr_by_id or {}
     gt = defaultdict(list)
     with open(gt_path) as f:
         for r in csv.DictReader(f):
@@ -458,19 +470,23 @@ def score_against_gt(ann, gt_path, mz_ppm, ri_win_fn, qsrr_by_ik=None):
                 mz = float(r["mz"]); ri = float(r["rt"])
             except (ValueError, KeyError):
                 continue
-            gt[plat].append((mz, ri, ik14(r["inchikey"])))
-    # Adduct-aware, by InChIKey. A compound is "placed right" if a call sits within the
-    # window of EITHER its DD RI or its QSRR-predicted ri (dual-RT recovery).
+            gid = (ik14(r["inchikey"]) if id_key == "inchikey"
+                   else _norm(r.get("name") or r.get("biochemical") or ""))
+            if gid:
+                gt[plat].append((mz, ri, gid))
+    # Adduct-aware, by identity (name by default; both MAF and DD are Metabolon, ~99%
+    # name overlap, and InChIKey is blank on ~half the DD). A compound is "placed right"
+    # if a call sits within the window of EITHER its DD RI or its QSRR-predicted ri.
     tp = fn = 0; pc_ok = pc_tot = 0
     for plat, comps in gt.items():
         gt_ri = {}
         for mz, ri, gik in comps: gt_ri.setdefault(gik, ri)
-        sub = ann[(ann.platform == plat) & (ann.match_ik14.astype(bool))]
-        ari = sub.ri_norm.to_numpy(); aik = sub.match_ik14.to_numpy()
+        sub = ann[(ann.platform == plat) & (ann.match_id.astype(bool))]
+        ari = sub.ri_norm.to_numpy(); aik = sub.match_id.to_numpy()
         def near(rn, gik, ri):
             w = ri_win_fn(plat, ri)
             if abs(rn - ri) <= w: return True
-            q = qsrr_by_ik.get(gik)
+            q = qsrr_by_id.get(gik)
             return q is not None and abs(rn - q) <= w
         for gik, ri in gt_ri.items():
             sel = np.where(aik == gik)[0]
@@ -559,6 +575,12 @@ def main():
     ap.add_argument("--universe", default="/root/SQuID-INC/data/processed/compound_universe.csv",
                     help="compound_universe.csv for ik14->SMILES resolution (dual-rt)")
     ap.add_argument("--no-prefer-structured", action="store_true")
+    ap.add_argument("--id-key", choices=["name", "inchikey"], default="name",
+                    help="identity for matching/scoring. 'name' (default): Metabolon "
+                         "biochemical name (incl. (1)/(2)/* isomer suffixes) — populated on "
+                         "~all DD rows and ~99%% overlap with the MAF. 'inchikey': legacy "
+                         "InChIKey14, but BLANK on ~47%% of the public DD, so it silently "
+                         "fails to credit correct matches that land on a blank-ik library row.")
     ap.add_argument("--gt", default="")
     a = ap.parse_args()
 
@@ -613,7 +635,7 @@ def main():
     df = normalise_ri(df, ladders, pooled)
     print(f"features normalised to RI: {len(df)}", flush=True)
     cons = consensus_features(df, a.mz_ppm, ri_tol, a.min_rep)
-    qsrr_by_ik = {}
+    qsrr_by_id = {}
     if a.dual_rt:
         smi = load_smiles_map(Path(a.universe))
         print(f"dual-rt: ik14->SMILES map {len(smi)}", flush=True)
@@ -622,15 +644,16 @@ def main():
         for cand in lib.values():
             for c in cand:
                 if c.get("is_primary", True) and c.get("ri_qsrr") is not None:
-                    qsrr_by_ik.setdefault(c["ik14"], c["ri_qsrr"])
+                    qsrr_by_id.setdefault(cid_of(c, a.id_key), c["ri_qsrr"])
     ann = match(cons, lib, a.mz_ppm, ri_win_fn, prefer_structured=not a.no_prefer_structured,
-                score_mode=a.score_mode, composite_cap=a.composite_cap, adduct_penalty=a.adduct_penalty)
+                score_mode=a.score_mode, composite_cap=a.composite_cap,
+                adduct_penalty=a.adduct_penalty, id_key=a.id_key)
     if a.ordinal:
-        ann = ordinal_reassign(ann, lib, a.mz_ppm, ri_win_fn)
-    print(f"consensus {len(cons)}  annotated {int(ann.match_ik14.astype(bool).sum())}", flush=True)
+        ann = ordinal_reassign(ann, lib, a.mz_ppm, ri_win_fn, id_key=a.id_key)
+    print(f"consensus {len(cons)}  annotated {int(ann.match_id.astype(bool).sum())}", flush=True)
     ann.to_csv(a.out, index=False); print(f"-> {a.out}", flush=True)
     if a.gt:
-        score_against_gt(ann, Path(a.gt), a.mz_ppm, ri_win_fn, qsrr_by_ik)
+        score_against_gt(ann, Path(a.gt), a.mz_ppm, ri_win_fn, qsrr_by_id, id_key=a.id_key)
 
 
 if __name__ == "__main__":
