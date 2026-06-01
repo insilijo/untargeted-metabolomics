@@ -1,0 +1,26 @@
+compound_id,name,inchikey,smiles,platform,pubchem,mz,ri,observed_rt_sec,rt_spread_s,n_files,quality
+pubchem:1061,phosphate,NBIIXXVUZAFLBC-UHFFFAOYSA-N,O=P(O)(O)O,lc/ms pos early,1061,98.98418,576.0,37.35,23.0,100,1.519
+pubchem:107812,hypotaurine,VVIUBCNYACGLLV-UHFFFAOYSA-N,NCCS(O)=O,lc/ms pos early,107812,110.02703,724.0,43.95,0.5,96,2.183
+pubchem:5351619,ergothioneine,SSISHJJTAXXQAX-UHFFFAOYSA-N,S=C1NC(CC(C([O-])=O)[N+](C)(C)C)=CN1,lc/ms pos early,5351619,230.09578,850.0,49.29,0.6,90,2.114
+pubchem:82142,S-methylcysteine sulfoxide,ZZLHPCSGGOGHFW-UHFFFAOYSA-N,NC(CS(C)=O)C(O)=O,lc/ms pos early,82142,152.03759,900.0,52.91,0.6,100,2.207
+pubchem:43,2-hydroxyglutarate,HWXBTNAVRSUOJR-UHFFFAOYSA-N,O=C(O)CCC(O)C(O)=O,lc/ms pos early,43,147.02989,958.0,50.05,8.1,100,1.691
+pubchem:93176,thioproline,DZLNHFMRPBPULJ-VKHMYHEASA-N,O=C(O)[C@]1(NCSC1)[H],lc/ms pos early,93176,134.02703,1250.0,67.76,1.2,66,1.768
+pubchem:440810,N1-methyl-4-pyridone-3-carboxamide,KTLRWTOPTKGYQY-UHFFFAOYSA-N,O=C(C(C1=O)=CN(C=C1)C)N,lc/ms pos early,440810,153.06586,1260.0,67.96,2.3,77,1.785
+pubchem:443992,N-acetyl-2-aminoadipate,FTTGAAZKBNZDCZ-LURJTMIESA-N,CC(N[C@@](CCCC(O)=O)(C(O)=O)[H])=O,lc/ms pos early,443992,204.0867,1374.0,43.42,16.3,100,1.531
+pubchem:650095,N1-methylinosine,WJNGQIYEQLPJMN-UHFFFAOYSA-N,OC(C1O)C(OC1CO)N(C=N2)C(N=CN3C)=C2C3=O,lc/ms pos early,650095,283.1037,1430.0,78.24,0.7,19,1.332
+pubchem:100099,gamma-glutamylglycine,ACIJGUBIMXQCMF-BYPYZUCNSA-N,O=C(O)[C@@H](N)CCC(NCC(O)=O)=O,lc/ms pos early,100099,205.0819,1535.0,81.71,1.5,57,1.637
+pubchem:107461,N4-acetylcytidine,NIDVTARKFBZMOT-PEBGCTIMSA-N,O[C@]1([H])[C@@](O)([H])[C@](CO)([H])O[C@]1(N2C(N=C(NC(C)=O)C=C2)=O)[H],lc/ms pos early,107461,286.10337,1580.0,55.99,1.9,66,1.68
+SCTJBDDLOROJJM,gamma-glutamylcitrulline*,SCTJBDDLOROJJM-UHFFFAOYSA-N,NC(C(O)=O)CCC(NC(CCCNC(N)=O)C(O)=O)=O,lc/ms pos early,,305.14556,1644.0,143.9,3.0,100,1.95
+pubchem:76078708,gamma-glutamylthreonine,GWNXFCYUJXASDX-JUZNGCLZSA-N,CC(O)[C@@H](C(O)=O)NC(CC[C@@H](C(O)=O)N)=O,lc/ms pos early,76078708,249.10812,1750.0,99.61,19.6,91,1.416
+CAMXXPUSAROUCX,S-carboxyethylcysteine,CAMXXPUSAROUCX-BYPYZUCNSA-N,SC[C@@H](C(O)=O)NCCC(O)=O,lc/ms pos early,,194.0482,1785.0,62.15,1.1,9,1.155
+pubchem:305,choline,CRBHXDCYXIISFC-UHFFFAOYSA-N,[O-]CC[N+](C)(C)C,lc/ms pos early,305,104.10699,1961.0,113.25,12.3,100,1.685
+pubchem:793,imidazole lactate,ACZFBYCNAVEFLC-UHFFFAOYSA-N,OC(C(O)=O)CC1=CN=CN1,lc/ms pos early,793,157.06077,2040.0,55.32,2.1,100,2.033
+pubchem:1145,trimethylamine N-oxide,UYPYRKYUKCHHIB-UHFFFAOYSA-N,C[N+](C)([O-])C,lc/ms pos early,1145,76.07569,2100.0,121.61,1.0,80,1.955
+pubchem:190,adenine,GFFGJBXGBJISGV-UHFFFAOYSA-N,NC1=NC=NC2=C1N=CN2,lc/ms pos early,190,136.06178,2221.0,128.05,9.8,98,1.596
+pubchem:122356,N-acetylputrescine,KLZGKIDSEJWEDW-UHFFFAOYSA-N,CC(NCCCCN)=O,lc/ms pos early,122356,131.11789,2230.0,130.08,1.2,99,2.093
+pubchem:500,4-guanidinobutanoate,TUHVEAJXIMEOSA-UHFFFAOYSA-N,N=C(N)NCCCC(O)=O,lc/ms pos early,500,146.09241,2320.0,134.12,4.7,22,1.029
+VOWFCBSRZKGKTF,"N,N-dimethyl-pro-pro",VOWFCBSRZKGKTF-UHFFFAOYSA-N,O=C(N1CCCC1C([O-])=O)C2CCC[N+]2(C)C,lc/ms pos early,,241.1547,2500.0,142.43,1.6,18,1.214
+pubchem:60825,lamivudine,JTEGQNOMFQHVDC-NKWVEPMBSA-N,O=c1nc(N)ccn1[C@@H]2CS[C@H](CO)O2,lc/ms pos early,60825,230.0594,2586.0,147.62,1.0,41,1.564
+pubchem:442106,tryptophan betaine,AOHCBEAZXHZMOR-ZDUSSCGKSA-N,O=C([O-])[C@@H]([N@+](C)(C)C)CC1=CNC2=C1C=CC=C2,lc/ms pos early,442106,247.14411,2673.0,157.72,0.9,98,2.187
+pubchem:161166,kynurenine,YGPSJZOEDVAXAB-QMMMGPOBSA-N,N[C@H](C(O)=O)CC(C1=CC=CC=C1N)=O,lc/ms pos early,161166,209.09207,2739.0,160.27,0.9,96,2.137
+pubchem:164795,N6-methyllysine,PQNASZJZHFPQLE-LURJTMIESA-N,O=C([C@H](CCCCNC)N)O,lc/ms pos early,164795,161.1285,2831.0,165.52,0.9,74,1.929
