@@ -432,15 +432,24 @@ def match(cons, lib, mz_ppm, ri_win_fn, prefer_structured=True, score_mode="gate
 
 
 def ordinal_reassign(ann, lib, mz_ppm, ri_win_fn, id_key="name"):
-    """ORDINAL isomer assignment: for each shared-m/z isomer set (>=2 library compounds,
-    same m/z, distinct RIs), if we detect exactly as many RT clusters as there are
-    isomers, reassign them rank-to-rank (RT order <-> DD RI order). Uses only the
-    DD-established elution ORDER, not absolute RI precision (which we lack). Leaves
-    everything else untouched."""
+    """DD-guided ONE-TO-ONE isomer assignment. For each shared-m/z library isomer set
+    (>=2 distinct identities at the same m/z, distinct DD RIs), assign each isomer to a
+    DISTINCT detected peak by RI proximity (Hungarian, each pair within that isomer's
+    window) — one peak per isomer. Generalizes the old strict rank-to-rank rule, which
+    only fired when #peaks == #isomers exactly (almost never: 69/80 isomer-collision FNs
+    on ST004581 have 3+ peaks vs 2 isomers, so it never engaged). The one-to-one
+    constraint stops the greedy matcher from sending several peaks to one isomer and
+    orphaning the other ("one peak is one isomer, the other peak is the other"). Uses the
+    DD's isomer count + RI ORDER, not absolute-RI precision we lack. Isomer sets are keyed
+    by name identity (not ik14, which is blank on ~47% of the DD)."""
+    try:
+        from scipy.optimize import linear_sum_assignment
+    except ImportError:
+        linear_sum_assignment = None
     ann = ann.reset_index(drop=True); ann["ordinal"] = False
     n_fixed = 0
     for plat in ann.platform.unique():
-        prim = [c for c in lib.get(plat, []) if c.get("is_primary", True) and c.get("ik14")]
+        prim = [c for c in lib.get(plat, []) if c.get("is_primary", True) and cid_of(c, id_key)]
         if len(prim) < 2:
             continue
         prim.sort(key=lambda c: c["mz"]); pmz = np.array([c["mz"] for c in prim])
@@ -451,25 +460,41 @@ def ordinal_reassign(ann, lib, mz_ppm, ri_win_fn, id_key="name"):
             j = i + 1
             while j < n and (pmz[j] - pmz[i]) <= pmz[i] * mz_ppm * 1e-6:
                 j += 1
-            # isomers in this m/z set: one (RI, ik, name) per distinct ik14
+            # distinct identities at this m/z: (RI, id, name, ik14) per identity
             seen = {}
             for m in prim[i:j]:
-                seen.setdefault(m["ik14"], (m["ri"], m["name"]))
+                seen.setdefault(cid_of(m, id_key), (m["ri"], m["name"], m["ik14"]))
             if len(seen) >= 2:
-                isos = sorted((ri, ik, nm) for ik, (ri, nm) in seen.items())
+                isos = sorted((ri, cid, nm, ik) for cid, (ri, nm, ik) in seen.items())
                 mz0 = prim[i]["mz"]; tol = mz0 * mz_ppm * 1e-6
-                win = ri_win_fn(plat, float(np.mean([x[0] for x in isos])))
-                lo, hi = isos[0][0] - win, isos[-1][0] + win
+                wmax = max(ri_win_fn(plat, x[0]) for x in isos)
+                lo, hi = isos[0][0] - wmax, isos[-1][0] + wmax
                 sel = sub[(np.abs(amz[sub] - mz0) <= tol) & (ari[sub] >= lo) & (ari[sub] <= hi)]
-                if len(sel) == len(isos):                      # one detected cluster per isomer
-                    order = sel[np.argsort(ari[sel])]
-                    for k, ridx in enumerate(order):
-                        if ann.at[ridx, "match_ik14"] != isos[k][1]:
+                if len(sel) >= 2:                              # >=2 detected peaks at this m/z
+                    sel_ri = ari[sel]
+                    cost = np.full((len(isos), len(sel)), 1e9)
+                    for a, (iri, _, _, _) in enumerate(isos):
+                        w = ri_win_fn(plat, iri)
+                        d = np.abs(sel_ri - iri)
+                        cost[a, d <= w] = d[d <= w]
+                    if linear_sum_assignment is not None:
+                        ra, cb = linear_sum_assignment(cost)
+                        pairs = list(zip(ra, cb))
+                    else:                                      # greedy one-to-one fallback
+                        pairs, used = [], set()
+                        for a in sorted(range(len(isos)), key=lambda a: cost[a].min()):
+                            b = int(np.argmin(cost[a]))
+                            if b not in used and cost[a, b] < 1e9:
+                                pairs.append((a, b)); used.add(b)
+                    for a, b in pairs:
+                        if cost[a, b] >= 1e9:
+                            continue                           # no peak within this isomer's window
+                        ridx = int(sel[b]); _, cid_a, nm_a, ik_a = isos[a]
+                        if ann.at[ridx, "match_id"] != cid_a:
                             n_fixed += 1
-                        ann.at[ridx, "match_ik14"] = isos[k][1]
-                        ann.at[ridx, "match_name"] = isos[k][2]
-                        ann.at[ridx, "match_id"] = (isos[k][1] if id_key == "inchikey"
-                                                    else _norm(isos[k][2]))
+                        ann.at[ridx, "match_ik14"] = ik_a
+                        ann.at[ridx, "match_name"] = nm_a
+                        ann.at[ridx, "match_id"] = cid_a
                         ann.at[ridx, "ordinal"] = True
             i = j
     print(f"ordinal isomer reassignment: {n_fixed} cluster labels changed", flush=True)
