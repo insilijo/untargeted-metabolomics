@@ -545,10 +545,15 @@ def main():
     ap.add_argument("--anchor-min-rep", type=int, default=0,
                     help="0 = auto (1 for injection-level alignment, 2 otherwise)")
     ap.add_argument("--align-level", choices=["injection", "batch", "platform"],
-                    default="batch",
+                    default="injection",
                     help="RT-alignment grain: detect the anchor ladder per injection "
                          "(finest; removes injection-to-injection drift before consensus -> "
-                         "tighter consensus RI), per batch, or one per platform.")
+                         "tighter consensus RI), per batch, or one per platform. DEFAULT injection "
+                         "(was batch): with densify-calibration default-on each injection has ~80 "
+                         "ladder points, so per-injection ladders are well-constrained and sharpen "
+                         "consensus RI (ST004581: recall 0.656->0.664, F1 0.789->0.794, precision "
+                         "held 0.988). Pre-densify this was worse (sparse per-injection anchors); "
+                         "falls back to the pooled platform ladder when an injection has too few.")
     ap.add_argument("--batch-regex", default=r"(Set\d+)")
     ap.add_argument("--window-mode", choices=["fixed", "spacing", "precision"], default="fixed",
                     help="fixed: rt-win-sec everywhere. spacing: scale by local anchor gap. "
