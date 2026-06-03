@@ -668,14 +668,15 @@ def main():
     ap.add_argument("--universe", default="/root/SQuID-INC/data/processed/compound_universe.csv",
                     help="compound_universe.csv for ik14->SMILES resolution (dual-rt)")
     ap.add_argument("--no-prefer-structured", action="store_true")
-    ap.add_argument("--no-deconvolve", dest="deconvolve", action="store_false",
-                    help="disable ion-family deconvolution (DEFAULT ON): suppress annotation "
-                         "of consensus features that are an isotope / alternative-adduct / "
-                         "in-source-fragment of a >=2x stronger co-eluting feature. These are "
-                         "debris of real bigger peaks landing on a library m/z (~62%% of the "
-                         "'noise' FP calls on ST004581); suppressing them is the recall-safe "
-                         "precision lever — the closed-world over-annotation Metabolon's "
-                         "clustering step removes and we otherwise skip.")
+    ap.add_argument("--deconvolve", action="store_true",
+                    help="EXPERIMENTAL, default OFF (it is a net loss as-is): suppress "
+                         "annotation of consensus features that are an isotope / alt-adduct / "
+                         "in-source-fragment of a >=2x stronger co-eluting feature. Intended to "
+                         "cut the ~62%% of 'noise' FPs that are ion-family debris, but with the "
+                         "wide consensus RI window it over-flags and kills ~120 TPs (recall "
+                         "0.672->0.537) for only +0.018 closed-world precision. Needs a tight "
+                         "same-peak co-elution window (~1-2s) or a learned curator (cf. MassID "
+                         "PeakDetective) to be recall-safe. Off until fixed.")
     ap.add_argument("--sat-ratio", type=float, default=2.0,
                     help="parent must be >= this x the satellite's intensity to suppress it")
     ap.add_argument("--no-robust-ladder", dest="robust_ladder", action="store_false",
