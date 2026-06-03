@@ -336,6 +336,46 @@ def consensus_features(df, mz_ppm, ri_tol_by_plat, min_rep):
     return pd.DataFrame(out)
 
 
+# m/z offset (satellite - parent) that makes a feature ion-family DEBRIS of a stronger,
+# co-eluting parent: heavier isotopes (+), alternative adducts (+), in-source neutral
+# losses (-). A feature explained this way is not an independent compound.
+_SAT_OFFSETS = (1.003355, 2.006710,
+                34.969402, 36.948099, 21.981944, 37.955882, 18.033823, 42.010565,
+                -18.010565, -17.026549, -43.989829, -27.994915, -30.010565,
+                -44.998201, -162.052824, -79.956815, -176.032088)
+
+
+def flag_satellites(cons, mz_ppm, ri_tol_by_plat, ratio=2.0):
+    """Deconvolution: flag each consensus feature that is an isotope / alternative-adduct
+    / in-source-fragment of a STRONGER (>= `ratio`x) co-eluting feature. Such a feature is
+    ion-family debris of a real bigger peak that happens to land on a library m/z, NOT an
+    independent compound, and should not get its own annotation. On ST004581 ~62% of the
+    'noise' FP calls are these satellites; suppressing them is the recall-safe precision
+    lever (per-peak statistics fail because the debris are real peaks too — the signal is
+    relational: 'already explained by a bigger peak nearby')."""
+    cons = cons.reset_index(drop=True)
+    sat = np.zeros(len(cons), dtype=bool)
+    for plat, g in cons.groupby("platform"):
+        idx = g.index.to_numpy()
+        o = np.argsort(g.mz.to_numpy())
+        mz = g.mz.to_numpy()[o]; ri = g.ri_norm.to_numpy()[o]
+        it = g.intensity.to_numpy()[o]; gi = idx[o]
+        rt = ri_tol_by_plat.get(plat, 150.0)
+        for k in range(len(mz)):
+            for off in _SAT_OFFSETS:
+                pmz = mz[k] - off                       # candidate stronger parent
+                tol = pmz * mz_ppm * 1e-6
+                lo = np.searchsorted(mz, pmz - tol); hi = np.searchsorted(mz, pmz + tol)
+                if hi > lo:
+                    co = np.abs(ri[lo:hi] - ri[k]) <= rt
+                    if co.any() and it[lo:hi][co].max() >= it[k] * ratio:
+                        sat[gi[k]] = True; break
+    out = cons.copy(); out["is_satellite"] = sat
+    print(f"deconvolution: {int(sat.sum())} of {len(out)} consensus features flagged as "
+          f"ion-family satellites (suppressed from annotation)", flush=True)
+    return out
+
+
 def anchor_rt_spread(features, anchors, mz_ppm):
     """Per-platform peak-RT reproducibility (median P90-P10, seconds) from anchors —
     the right scale for a flexible window: tight where peaks are reproducible."""
@@ -403,6 +443,9 @@ def match(cons, lib, mz_ppm, ri_win_fn, prefer_structured=True, score_mode="gate
                 d = min(d, abs(cqsrr[i]-ri))
             return d
         for _, f in g.iterrows():
+            if f.get("is_satellite", False):       # deconvolution: ion-family debris, don't annotate
+                rows.append({**f, "match_ik14": "", "match_name": "", "match_id": "", "n_cand": 0, "score": np.nan})
+                continue
             mz, ri = f["mz"], f["ri_norm"]; tol = mz * mz_ppm * 1e-6
             lo = np.searchsorted(cmz, mz - tol); hi = np.searchsorted(cmz, mz + tol)
             if score_mode == "composite":
@@ -625,6 +668,16 @@ def main():
     ap.add_argument("--universe", default="/root/SQuID-INC/data/processed/compound_universe.csv",
                     help="compound_universe.csv for ik14->SMILES resolution (dual-rt)")
     ap.add_argument("--no-prefer-structured", action="store_true")
+    ap.add_argument("--no-deconvolve", dest="deconvolve", action="store_false",
+                    help="disable ion-family deconvolution (DEFAULT ON): suppress annotation "
+                         "of consensus features that are an isotope / alternative-adduct / "
+                         "in-source-fragment of a >=2x stronger co-eluting feature. These are "
+                         "debris of real bigger peaks landing on a library m/z (~62%% of the "
+                         "'noise' FP calls on ST004581); suppressing them is the recall-safe "
+                         "precision lever — the closed-world over-annotation Metabolon's "
+                         "clustering step removes and we otherwise skip.")
+    ap.add_argument("--sat-ratio", type=float, default=2.0,
+                    help="parent must be >= this x the satellite's intensity to suppress it")
     ap.add_argument("--no-robust-ladder", dest="robust_ladder", action="store_false",
                     help="disable robust anchor outlier rejection in the sec->RI ladder "
                          "(default on): drop anchors whose detected RT puts their RI grossly "
@@ -691,6 +744,10 @@ def main():
     df = normalise_ri(df, ladders, pooled)
     print(f"features normalised to RI: {len(df)}", flush=True)
     cons = consensus_features(df, a.mz_ppm, ri_tol, a.min_rep)
+    if a.deconvolve:
+        cons = flag_satellites(cons, a.mz_ppm, ri_tol, a.sat_ratio)
+    else:
+        cons = cons.assign(is_satellite=False)
     qsrr_by_id = {}
     if a.dual_rt:
         smi = load_smiles_map(Path(a.universe))
