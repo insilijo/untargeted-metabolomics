@@ -679,6 +679,9 @@ def main():
                          "PeakDetective) to be recall-safe. Off until fixed.")
     ap.add_argument("--sat-ratio", type=float, default=2.0,
                     help="parent must be >= this x the satellite's intensity to suppress it")
+    ap.add_argument("--sat-rt-sec", type=float, default=2.0,
+                    help="co-elution window (s) for satellite=parent same-peak test (tight: a "
+                         "real isotope/adduct IS the same chromatographic peak, ~1-2s)")
     ap.add_argument("--no-robust-ladder", dest="robust_ladder", action="store_false",
                     help="disable robust anchor outlier rejection in the sec->RI ladder "
                          "(default on): drop anchors whose detected RT puts their RI grossly "
@@ -746,7 +749,10 @@ def main():
     print(f"features normalised to RI: {len(df)}", flush=True)
     cons = consensus_features(df, a.mz_ppm, ri_tol, a.min_rep)
     if a.deconvolve:
-        cons = flag_satellites(cons, a.mz_ppm, ri_tol, a.sat_ratio)
+        # satellites are the SAME chromatographic peak at a different m/z -> co-elute within
+        # ~1-2s, NOT the wide consensus window. Tight window avoids over-flagging true peaks.
+        sat_tol = {p: a.sat_rt_sec * s for p, s in slope.items()}
+        cons = flag_satellites(cons, a.mz_ppm, sat_tol, a.sat_ratio)
     else:
         cons = cons.assign(is_satellite=False)
     qsrr_by_id = {}
