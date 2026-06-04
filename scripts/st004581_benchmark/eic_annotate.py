@@ -88,6 +88,7 @@ def annotate_platform(plat, lib0, inv, mzml_files, window, mz_ppm, floor, min_re
     rng = np.random.RandomState(seed)
     N = len(mzml_files)
     present = np.zeros(len(names)); bg_hits = np.zeros(len(names)); bg_tot = np.zeros(len(names))
+    apex = [[] for _ in names]                       # observed apex sec per compound
     for mp in mzml_files:
         rt, mat = eic_pass(mp, mzc, mz_ppm)
         if not len(rt):
@@ -95,23 +96,29 @@ def annotate_platform(plat, lib0, inv, mzml_files, window, mz_ppm, floor, min_re
         centers = rng.uniform(rt.min() + window, rt.max() - window, n_rand)
         for k in range(len(names)):
             col = mat[:, k]
-            if col[np.abs(rt - esec[k]) <= window].max(initial=0) > floor:
-                present[k] += 1
+            m = np.abs(rt - esec[k]) <= window
+            if m.any():
+                seg = col[m]
+                if seg.max() > floor:
+                    present[k] += 1
+                    apex[k].append(float(rt[m][np.argmax(seg)]))
             for c0 in centers:
                 bg_tot[k] += 1
                 if col[np.abs(rt - c0) <= window].max(initial=0) > floor:
                     bg_hits[k] += 1
         print(f"    {Path(mp).name}", flush=True)
+    obs_sec = np.array([np.median(a) if a else np.nan for a in apex])
+    dev = np.abs(esec - obs_sec)                     # |predicted RT - observed apex| (nan if absent)
     b = np.clip(bg_hits / np.maximum(bg_tot, 1), 1e-6, 0.999)
     pval = binom.sf(present - 1, N, b)
     q = bh_qvalues(pval)
-    # isobar collapse: compounds sharing m/z (ppm) + expected RT (window) match the SAME
-    # peak -> mark one PRIMARY per group (best present, then lowest q); the rest are
-    # isobar duplicates that the permutation FDR can't tell apart (presence != identity).
+    # isobar resolution: compounds sharing m/z (ppm) + expected RT (window) match the SAME
+    # peak; the permutation FDR validates presence, not identity. Assign the peak to the
+    # isomer whose PREDICTED RT is closest to where the peak actually is (EIC apex) -- this
+    # is the one-to-one assignment the ~2s apex precision makes possible. The rest of the
+    # group are isobar duplicates (primary=0).
     primary = np.ones(len(names), bool)
-    order_mz = np.argsort(mzc)
-    rank = np.lexsort((q, -present))  # best call first
-    best_rank = {idx: r for r, idx in enumerate(rank)}
+    rank = np.argsort(np.nan_to_num(dev, nan=1e9))   # smallest apex-deviation first = best ID
     assigned = np.zeros(len(names), bool)
     for i in rank:
         if assigned[i]:
@@ -120,12 +127,13 @@ def annotate_platform(plat, lib0, inv, mzml_files, window, mz_ppm, floor, min_re
         tol = mzc[i] * mz_ppm * 1e-6
         for j in range(len(names)):
             if not assigned[j] and abs(mzc[j] - mzc[i]) <= tol and abs(esec[j] - esec[i]) <= window:
-                assigned[j] = True; primary[j] = False   # duplicate of the better call i
+                assigned[j] = True; primary[j] = False
     out = []
     for k, nm in enumerate(names):
         out.append({"platform": plat, "name": comp[nm][2], "ik14": comp[nm][3],
                     "mz": round(comp[nm][0], 5), "ri": comp[nm][1],
                     "present": int(present[k]), "n_inj": N,
+                    "apex_dev_s": round(float(dev[k]), 1) if not np.isnan(dev[k]) else "",
                     "local_null": round(float(b[k]), 3), "qvalue": round(float(q[k]), 4),
                     "primary": int(primary[k])})
     return out
