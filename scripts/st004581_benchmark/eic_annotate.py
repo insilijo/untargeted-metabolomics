@@ -36,16 +36,22 @@ PLAT_METHOD = {"lc/ms pos early": "Method1", "lc/ms pos late": "Method2",
                "lc/ms neg": "Method3", "lc/ms polar": "Method4"}
 
 
-def inverse_ladder(pooled_pairs_plat):
-    """RI -> sec PCHIP from the pooled (sec, RI) anchor pairs of a platform."""
-    agg = defaultdict(list)
-    for sec, ri in pooled_pairs_plat:
-        agg[round(ri, 1)].append(sec)
-    xs = np.array(sorted(agg))
-    ys = np.array([np.median(agg[x]) for x in xs])
-    if len(xs) < 3:
+def inverse_ladder(forward):
+    """RI -> sec, as the TRUE numerical inverse of the forward sec->RI ladder. (A
+    separately-fit RI->sec PCHIP is NOT the inverse of the forward — they aggregate
+    differently — and the inconsistency mis-predicts RT by ~40s, the dominant recall
+    miss.) Sample the forward on a fine sec grid, keep the strictly-increasing RI branch,
+    and interpolate RI->sec from that curve so forward(inverse(RI)) == RI by construction."""
+    if forward is None:
         return None
-    return PchipInterpolator(xs, ys, extrapolate=True)
+    sk = np.asarray(forward.x)
+    sgrid = np.linspace(sk.min(), sk.max(), 4000)
+    rgrid = np.asarray(forward(sgrid))
+    keep = np.concatenate(([True], np.diff(rgrid) > 0))   # monotone-increasing RI branch
+    rgrid, sgrid = rgrid[keep], sgrid[keep]
+    if len(rgrid) < 4:
+        return None
+    return PchipInterpolator(rgrid, sgrid, extrapolate=True)
 
 
 def eic_pass(mzml, mzs, mz_ppm):
@@ -169,14 +175,14 @@ def main():
             tol = c["mz"] * a.mz_ppm * 1e-6
             if (np.searchsorted(mzs, c["mz"] + tol) - np.searchsorted(mzs, c["mz"] - tol)) == 1:
                 cal.setdefault(plat, []).append((c["mz"], c["ri"]))
-    _, _, _, pp = M.build_batch_ladders(df, cal, a.mz_ppm, 1, True)
+    _, pooled, _, pp = M.build_batch_ladders(df, cal, a.mz_ppm, 1, True)
 
     rows = []
     for plat in [p.strip() for p in a.platforms.split(",") if p.strip()]:
         meth = PLAT_METHOD.get(plat)
         files = sorted(glob.glob(f"{a.mzml_dir}/{meth}_*{a.sample_tag}*.mzML"))[:a.n_inj] if meth else []
         print(f"[{plat}] {len(files)} injections", flush=True)
-        rows += annotate_platform(plat, lib0, inverse_ladder(pp.get(plat, [])), files,
+        rows += annotate_platform(plat, lib0, inverse_ladder(pooled.get(plat)), files,
                                   a.window, a.mz_ppm, a.floor, a.min_rep, a.n_rand, seed=0)
     rows.sort(key=lambda r: r["qvalue"])
     with open(a.out, "w", newline="") as f:
