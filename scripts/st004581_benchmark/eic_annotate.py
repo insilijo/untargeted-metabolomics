@@ -105,12 +105,29 @@ def annotate_platform(plat, lib0, inv, mzml_files, window, mz_ppm, floor, min_re
     b = np.clip(bg_hits / np.maximum(bg_tot, 1), 1e-6, 0.999)
     pval = binom.sf(present - 1, N, b)
     q = bh_qvalues(pval)
+    # isobar collapse: compounds sharing m/z (ppm) + expected RT (window) match the SAME
+    # peak -> mark one PRIMARY per group (best present, then lowest q); the rest are
+    # isobar duplicates that the permutation FDR can't tell apart (presence != identity).
+    primary = np.ones(len(names), bool)
+    order_mz = np.argsort(mzc)
+    rank = np.lexsort((q, -present))  # best call first
+    best_rank = {idx: r for r, idx in enumerate(rank)}
+    assigned = np.zeros(len(names), bool)
+    for i in rank:
+        if assigned[i]:
+            continue
+        assigned[i] = True
+        tol = mzc[i] * mz_ppm * 1e-6
+        for j in range(len(names)):
+            if not assigned[j] and abs(mzc[j] - mzc[i]) <= tol and abs(esec[j] - esec[i]) <= window:
+                assigned[j] = True; primary[j] = False   # duplicate of the better call i
     out = []
     for k, nm in enumerate(names):
         out.append({"platform": plat, "name": comp[nm][2], "ik14": comp[nm][3],
                     "mz": round(comp[nm][0], 5), "ri": comp[nm][1],
                     "present": int(present[k]), "n_inj": N,
-                    "local_null": round(float(b[k]), 3), "qvalue": round(float(q[k]), 4)})
+                    "local_null": round(float(b[k]), 3), "qvalue": round(float(q[k]), 4),
+                    "primary": int(primary[k])})
     return out
 
 
@@ -156,8 +173,9 @@ def main():
     rows.sort(key=lambda r: r["qvalue"])
     with open(a.out, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys())); w.writeheader(); w.writerows(rows)
-    called = [r for r in rows if r["qvalue"] < a.fdr and r["present"] >= a.min_rep]
-    print(f"\nwrote {len(rows)} compounds -> {a.out}; called at FDR<{a.fdr} (>= {a.min_rep} inj): {len(called)}", flush=True)
+    called = [r for r in rows if r["qvalue"] < a.fdr and r["present"] >= a.min_rep and r.get("primary", 1)]
+    print(f"\nwrote {len(rows)} compounds -> {a.out}; called at FDR<{a.fdr} "
+          f"(>= {a.min_rep} inj, isobar-primary): {len(called)}", flush=True)
 
     if a.gt:
         maf = defaultdict(set)
@@ -170,7 +188,7 @@ def main():
         n_maf = sum(len(maf[p]) for p in {r["platform"] for r in rows})
         print(f"\n{'FDR<':>6}{'called':>8}{'TP':>6}{'precision':>11}{'recall':>9}")
         for lvl in [0.01, 0.05, 0.10, 0.20]:
-            keep = [r for r in rows if r["qvalue"] < lvl and r["present"] >= a.min_rep]
+            keep = [r for r in rows if r["qvalue"] < lvl and r["present"] >= a.min_rep and r.get("primary", 1)]
             tp = sum(1 for r in keep if M._norm(r["name"]) in maf.get(r["platform"], set()))
             c = len(keep)
             print(f"{lvl:>6.2f}{c:>8}{tp:>6}{(tp/c if c else 0):>11.3f}{(tp/n_maf if n_maf else 0):>9.3f}")
