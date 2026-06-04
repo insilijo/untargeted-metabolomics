@@ -47,7 +47,8 @@ def inverse_ladder(forward):
     sk = np.asarray(forward.x)
     sgrid = np.linspace(sk.min(), sk.max(), 4000)
     rgrid = np.asarray(forward(sgrid))
-    keep = np.concatenate(([True], np.diff(rgrid) > 0))   # monotone-increasing RI branch
+    cm = np.maximum.accumulate(rgrid)                     # strictly-increasing RI envelope
+    keep = np.concatenate(([True], np.diff(cm) > 1e-9))
     rgrid, sgrid = rgrid[keep], sgrid[keep]
     if len(rgrid) < 4:
         return None
