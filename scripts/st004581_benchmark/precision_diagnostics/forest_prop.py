@@ -29,12 +29,24 @@ df=pd.read_parquet(FEAT); df["platform"]=df.source_file.str.split("_").str[0].ma
 df=df.dropna(subset=["platform"]); df["batch"]=df.source_file
 lib0=M.load_library(Path(DD)); anchors=M.load_anchor_points(Path(ANC))
 smi={ik14(r["inchikey"]):r["smiles"] for r in csv.DictReader(open(SMI)) if r.get("smiles")}
+# ladder (RI->sec) for an INDEPENDENT prediction used as the dedup tie-break key
+_cal={p:list(v) for p,v in anchors.items()}
+for _plat,_e in lib0.items():
+    _mzs=np.array(sorted(_c["mz"] for _c in _e))
+    for _c in _e:
+        _t=_c["mz"]*MZ_PPM*1e-6
+        if (np.searchsorted(_mzs,_c["mz"]+_t)-np.searchsorted(_mzs,_c["mz"]-_t))==1: _cal.setdefault(_plat,[]).append((_c["mz"],_c["ri"]))
+_,_,_,_pp=M.build_batch_ladders(df,_cal,MZ_PPM,1,True)
+_agg=defaultdict(list)
+for _sec,_ri in _pp[PLAT]: _agg[round(_ri,1)].append(_sec)
+_RI=np.array(sorted(_agg)); _SEC=np.array([np.median(_agg[r]) for r in _RI]); _u,_ui=np.unique(_RI,return_index=True)
+inv=PchipInterpolator(_u,_SEC[_ui],extrapolate=True)
 comp=[]
 for c in lib0.get(PLAT,[]):
     nm=M._norm(c["name"])
     if not nm: continue
     s=smi.get(c["ik14"]); d=_descriptors(s) if s else None
-    comp.append(dict(name=nm,mz=c["mz"],desc=(np.array(d) if d is not None else None)))
+    comp.append(dict(name=nm,mz=c["mz"],desc=(np.array(d) if d is not None else None),pred=float(inv(c["ri"]))))
 n=len(comp); MZc=np.array([c["mz"] for c in comp]); tol=MZc*MZ_PPM*1e-6
 inmaf=np.array([c["name"] in maf for c in comp]); nmaf=len(maf); N=len(MZML)
 DDIM=len(_descriptors("CCO"))
@@ -113,3 +125,69 @@ for Mv in range(1,K+1):
     sel=votes>=Mv; a=int(sel.sum())
     if not a: continue
     print(f"{Mv:>12}{a:>9}{inmaf[sel].sum()/nmaf:>8.3f}{inmaf[sel].sum()/a:>10.3f}")
+
+# ---- decomposition of the M=1 admitted set (honest true-precision accounting) ----
+sel=votes>=1
+strength=np.zeros(n); reprod=np.zeros(n); gapex=np.full(n,np.nan)
+for k in range(n):
+    allp=[p for inj in range(N) for p in peaks[k][inj] if len(peaks[k][inj])]
+    flat=[row for inj in range(N) for row in (peaks[k][inj] if len(peaks[k][inj]) else [])]
+    if flat:
+        A=np.array(flat); strength[k]=A[:,1].max(); gapex[k]=A[A[:,1].argmax(),0]
+        reprod[k]=sum(bool(len(peaks[k][inj])) and bool((np.abs(peaks[k][inj][:,0]-gapex[k])<=TIGHT).any()) for inj in range(N))
+maf_idx=[j for j in range(n) if inmaf[j]]; maf_mz=np.array([MZc[j] for j in maf_idx])
+cats=defaultdict(int)
+for k in np.where(sel)[0]:
+    if inmaf[k]: cats['TP']+=1; continue
+    iso=np.abs(maf_mz-MZc[k])<=MZc[k]*ISOBAR_PPM*1e-6
+    if iso.any():
+        isoj=[maf_idx[t] for t in np.where(iso)[0]]
+        cats['isobar_dup' if any(sel[j] for j in isoj) else 'substitution']+=1
+    else:
+        cats['novel_real' if (reprod[k]>=MINREP and strength[k]>2*FLOOR) else 'weak_noise']+=1
+tot=int(sel.sum()); tp=cats['TP']; nov=cats['novel_real']; sub=cats['substitution']; idup=cats['isobar_dup']
+print("\n--- M=1 admitted-set decomposition (n=%d) ---"%tot)
+for c,v in sorted(cats.items(),key=lambda x:-x[1]): print(f"  {c:<14}{v:>5}  {v/tot:.3f}")
+print(f"\nclosed-world precision (MAF only)                 : {tp/tot:.3f}")
+print(f"true precision (TP + novel_real = real compounds) : {(tp+nov)/tot:.3f}")
+print(f"genuine-error floor (TP / TP+substitution+isobar) : {tp/max(tp+sub+idup,1):.3f}")
+
+# ---- global co-elution dedup: one call per (isobaric m/z, co-eluting apex) ----
+def dedup(selmask):
+    idx=[k for k in np.where(selmask)[0] if not np.isnan(gapex[k])]
+    keep=np.zeros(n,bool); used=[]
+    for k in sorted(idx,key=lambda k:(abs(gapex[k]-comp[k]["pred"]),-votes[k])):
+        if any(abs(MZc[k]-MZc[j])<=MZc[k]*ISOBAR_PPM*1e-6 and abs(gapex[k]-gapex[j])<=TIGHT for j in used): continue
+        keep[k]=True; used.append(k)
+    return keep
+print("\n--- AFTER global co-elution dedup (one call per peak) ---")
+print(f"{'consensus>=M':>12}{'admitted':>9}{'recall':>8}{'precision':>10}{'truePrec':>10}")
+for Mv in [1,2,3,4,5]:
+    d=dedup(votes>=Mv); a=int(d.sum())
+    if not a: continue
+    tp_=inmaf[d].sum()
+    nov_=sum(1 for k in np.where(d)[0] if not inmaf[k] and not (np.abs(maf_mz-MZc[k])<=MZc[k]*ISOBAR_PPM*1e-6).any() and reprod[k]>=MINREP and strength[k]>2*FLOOR)
+    print(f"{Mv:>12}{a:>9}{tp_/nmaf:>8.3f}{tp_/a:>10.3f}{(tp_+nov_)/a:>10.3f}")
+
+# ---- COMPOUND-CLUSTER scoring (squid_inc design): co-eluting isobars = ONE annotation,
+# TP if ANY member is MAF. Lossless: keeps MAF compound in its cluster (recall held) while
+# collapsing isobaric peers (precision up). ----
+def cluster_score(selmask):
+    idx=[k for k in np.where(selmask)[0] if not np.isnan(gapex[k])]
+    clusters=[]
+    for k in sorted(idx,key=lambda k:-strength[k]):
+        for cl in clusters:
+            j=cl[0]
+            if abs(MZc[k]-MZc[j])<=MZc[k]*ISOBAR_PPM*1e-6 and abs(gapex[k]-gapex[j])<=TIGHT:
+                cl.append(k); break
+        else: clusters.append([k])
+    ncl=len(clusters)
+    tp_cl=sum(any(inmaf[k] for k in cl) for cl in clusters)
+    maf_cov=len(set(k for cl in clusters for k in cl if inmaf[k]))
+    return ncl,tp_cl,maf_cov
+print("\n--- COMPOUND-CLUSTER scoring (one annotation per co-eluting isobar group) ---")
+print(f"{'consensus>=M':>12}{'clusters':>9}{'recall':>8}{'precision':>11}")
+for Mv in [1,2,3,4,5]:
+    ncl,tp_cl,maf_cov=cluster_score(votes>=Mv)
+    if not ncl: continue
+    print(f"{Mv:>12}{ncl:>9}{maf_cov/nmaf:>8.3f}{tp_cl/ncl:>11.3f}")
