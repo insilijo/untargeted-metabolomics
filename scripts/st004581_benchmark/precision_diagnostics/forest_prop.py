@@ -17,9 +17,15 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 DD="/root/SQuID-INC/data/external/metabolon_data_dictionary_PMC_OA_subset_4.14.2024.csv"
 GT="/root/SQuID-INC/data/st004581/annotations_repaired.csv"; FEAT="/tmp/feat_colu.parquet"
 ANC="/root/untargeted-metabolomics/data/anchor_panels/anchors_all_platforms.csv"
-KIT="/root/untargeted-metabolomics/data/anchor_panels/anchors_lc_ms_neg.csv"; SMI="/tmp/dd_pubchem_smiles.csv"
-MZML=sorted(glob.glob("/root/SQuID-INC/data/st004581/mzml/Method3_*COLU*.mzML"))[:8]
-PLAT="lc/ms neg"; MZ_PPM=7.0; FLOOR=50000.0; TIGHT=6.0; MINREP=2; NRAND=60; FDR_ADMIT=0.01
+_PCFG={"neg":("lc/ms neg","anchors_lc_ms_neg.csv","Method3"),
+       "pos_early":("lc/ms pos early","anchors_lc_ms_pos_early.csv","Method1"),
+       "pos_late":("lc/ms pos late","anchors_lc_ms_pos_late.csv","Method2"),
+       "polar":("lc/ms polar","anchors_lc_ms_polar.csv","Method4")}
+_pk=sys.argv[1] if len(sys.argv)>1 else "neg"
+PLAT,_kf,_meth=_PCFG[_pk]
+KIT=f"/root/untargeted-metabolomics/data/anchor_panels/{_kf}"; SMI="/tmp/dd_pubchem_smiles.csv"
+MZML=sorted(glob.glob(f"/root/SQuID-INC/data/st004581/mzml/{_meth}_*COLU*.mzML"))[:8]
+MZ_PPM=7.0; FLOOR=50000.0; TIGHT=6.0; MINREP=2; NRAND=60; FDR_ADMIT=0.01
 ISOBAR_PPM=10.0; K=10; NFEAT=15; ik14=lambda s:(s or "")[:14]
 maf=set()
 for r in csv.DictReader(open(GT)):
@@ -191,3 +197,44 @@ for Mv in [1,2,3,4,5]:
     ncl,tp_cl,maf_cov=cluster_score(votes>=Mv)
     if not ncl: continue
     print(f"{Mv:>12}{ncl:>9}{maf_cov/nmaf:>8.3f}{tp_cl/ncl:>11.3f}")
+
+# ---- MISLOCATION RESCUE PASS: after propagation, train final model on all admitted, then
+# do ONE wider-window search for the unadmitted (mislocated FNs). One-to-one by prediction-
+# closeness (answer-key-first); FDR vs the WIDER null; cluster-score the combined set. ----
+WIDE=20.0
+admset=[k for k in range(n) if votes[k]>=1 and comp[k]["desc"] is not None and not np.isnan(gapex[k])]
+if len(admset)>20:
+    fmdl=HistGradientBoostingRegressor(max_iter=400,max_depth=4,learning_rate=0.05,min_samples_leaf=5).fit(
+        np.array([comp[k]["desc"] for k in admset]), np.array([gapex[k] for k in admset]))
+    # wider null per compound
+    nullW=np.array([sum((len(peaks[k][inj]) and (np.abs(peaks[k][inj][:,0]-c)<=WIDE).any()) for inj in range(N) for c in RC[inj])/(N*NRAND) for k in range(n)])
+    rescued=np.zeros(n,bool); rap={}
+    cand=[]
+    for k in range(n):
+        if votes[k]>=1 or comp[k]["desc"] is None: continue
+        pr=float(fmdl.predict([comp[k]["desc"]])[0])
+        nrep,apex=rep_apex(k,pr,WIDE)
+        if nrep<MINREP or apex is None: continue
+        if binom.sf(nrep-1,N,np.clip(nullW[k],1e-6,0.999))>FDR_ADMIT: continue
+        cand.append((k,apex,abs(apex-pr)))
+    cand.sort(key=lambda x:x[2])
+    taken=[]
+    for k,apex,dp in cand:
+        if any(abs(MZc[k]-MZc[j])<=MZc[k]*ISOBAR_PPM*1e-6 and abs(apex-aa)<=TIGHT for j,aa in taken): continue
+        taken.append((k,apex)); rescued[k]=True; gapex[k]=apex
+    sel2=(votes>=1)|rescued
+    # cluster-score combined
+    idx=[k for k in np.where(sel2)[0] if not np.isnan(gapex[k])]
+    clusters=[]
+    for k in sorted(idx,key=lambda k:-strength[k] if strength[k]>0 else 0):
+        for cl in clusters:
+            j=cl[0]
+            if abs(MZc[k]-MZc[j])<=MZc[k]*ISOBAR_PPM*1e-6 and abs(gapex[k]-gapex[j])<=TIGHT: cl.append(k); break
+        else: clusters.append([k])
+    ncl=len(clusters); tp_cl=sum(any(inmaf[k] for k in cl) for cl in clusters)
+    maf_cov=len(set(k for cl in clusters for k in cl if inmaf[k]))
+    nres_maf=sum(inmaf[k] for k in np.where(rescued)[0])
+    print(f"\n--- MISLOCATION RESCUE (wide={WIDE}s, final model on {len(admset)} admitted) ---")
+    print(f"rescued compounds            : {int(rescued.sum())}  (of which MAF: {nres_maf})")
+    print(f"cluster recall  : {maf_cov}/{nmaf} = {maf_cov/nmaf:.3f}   (was 0.532 pre-rescue)")
+    print(f"cluster precision: {tp_cl}/{ncl} = {tp_cl/ncl:.3f}   (was 0.658 pre-rescue)")
