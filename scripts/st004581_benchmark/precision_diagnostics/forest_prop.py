@@ -25,12 +25,21 @@ _pk=sys.argv[1] if len(sys.argv)>1 else "neg"
 PLAT,_kf,_meth=_PCFG[_pk]
 KIT=f"/root/untargeted-metabolomics/data/anchor_panels/{_kf}"; SMI="/tmp/dd_pubchem_smiles.csv"
 MZML=sorted(glob.glob(f"/root/SQuID-INC/data/st004581/mzml/{_meth}_*COLU*.mzML"))[:8]
-MZ_PPM=7.0; FLOOR=50000.0; TIGHT=6.0; MINREP=2; NRAND=60; FDR_ADMIT=0.01
+MZ_PPM=7.0; FLOOR=50000.0; TIGHT=6.0; MINREP=max(2,round(0.30*len(MZML))); NRAND=60; FDR_ADMIT=0.01
 ISOBAR_PPM=10.0; K=10; NFEAT=15; ik14=lambda s:(s or "")[:14]
-maf=set()
+maf=set(); maf_ik=set(); name2id={}; ik2id={}; _eid=0
 for r in csv.DictReader(open(GT)):
     if r.get("unannotatable","")=="true": continue
-    if (r.get("platform") or "").strip().lower()==PLAT: maf.add(M._norm(r.get("name") or ""))
+    if (r.get("platform") or "").strip().lower()==PLAT:
+        nm=M._norm(r.get("name") or ""); _ik=(r.get("inchikey") or "").strip()[:14]
+        maf.add(nm)
+        # one entry-id per MAF compound, keyed primarily by ik14 (so synonyms collapse)
+        if len(_ik)>=14 and _ik in ik2id: eid=ik2id[_ik]
+        elif nm in name2id: eid=name2id[nm]
+        else: eid=_eid; _eid+=1
+        name2id.setdefault(nm,eid)
+        if len(_ik)>=14: maf_ik.add(_ik); ik2id.setdefault(_ik,eid)
+NMAF=_eid  # distinct MAF compounds (synonyms collapsed by ik)
 df=pd.read_parquet(FEAT); df["platform"]=df.source_file.str.split("_").str[0].map(M.DEFAULT_PREFIX_MAP)
 df=df.dropna(subset=["platform"]); df["batch"]=df.source_file
 lib0=M.load_library(Path(DD)); anchors=M.load_anchor_points(Path(ANC))
@@ -52,9 +61,14 @@ for c in lib0.get(PLAT,[]):
     nm=M._norm(c["name"])
     if not nm: continue
     s=smi.get(c["ik14"]); d=_descriptors(s) if s else None
-    comp.append(dict(name=nm,mz=c["mz"],desc=(np.array(d) if d is not None else None),pred=float(inv(c["ri"]))))
+    comp.append(dict(name=nm,mz=c["mz"],desc=(np.array(d) if d is not None else None),pred=float(inv(c["ri"])),ik=(c.get("ik14") or "")[:14]))
 n=len(comp); MZc=np.array([c["mz"] for c in comp]); tol=MZc*MZ_PPM*1e-6
-inmaf=np.array([c["name"] in maf for c in comp]); nmaf=len(maf); N=len(MZML)
+# MATCH BY INCHIKEY-OR-NAME (DD carries synonym variants the name-key splits; see maf_doublecheck)
+# mid = the distinct MAF-compound id this DD compound maps to (ik first so synonyms collapse), else -1
+mid=np.array([(ik2id.get(c["ik"]) if len(c["ik"])>=14 and c["ik"] in ik2id else name2id.get(c["name"],-1)) if (c["name"] in maf or (len(c["ik"])>=14 and c["ik"] in maf_ik)) else -1 for c in comp])
+inmaf=mid>=0; nmaf=NMAF; N=len(MZML)
+def _recall(selmask):  # distinct MAF compounds covered (NOT DD synonyms)
+    return len(set(mid[selmask&inmaf]))/nmaf
 DDIM=len(_descriptors("CCO"))
 print(f"neg compounds {n} (smiles {sum(c['desc'] is not None for c in comp)}, MAF {inmaf.sum()})  descdim {DDIM}  K {K}",flush=True)
 peaks=[[] for _ in range(n)]; rtspans=[]
@@ -126,11 +140,28 @@ def run_chain(cs):
 votes=np.zeros(n)
 for c in range(K):
     votes+=run_chain(c); print(f"  chain {c} done (admitted {int(votes.sum() if c==0 else 0) or ''})",flush=True) if c==0 else None
+# ---- LADDER-FALLBACK: no-SMILES compounds reached via RI->sec ladder (no structure model).
+# Only MASS-UNIQUE no-SMILES compounds (a peak at their m/z is unambiguously them; RT just
+# confirms) -> keeps no-SMILES recall while cutting coincidental-peak FPs. ----
+_so=np.argsort(MZc); _ss=MZc[_so]
+massuniq=np.ones(n,bool)
+for k in range(n):
+    t=MZc[k]*MZ_PPM*1e-6
+    massuniq[k]=(np.searchsorted(_ss,MZc[k]+t)-np.searchsorted(_ss,MZc[k]-t))<=1
+nolad=0; nolad_skip=0
+for k in range(n):
+    if comp[k]["desc"] is not None: continue
+    if not massuniq[k]: nolad_skip+=1; continue          # isobaric no-SMILES -> ladder can't disambiguate
+    nrep,apex=rep_apex(k,comp[k]["pred"],TIGHT)
+    if nrep<MINREP or apex is None: continue
+    if binom.sf(nrep-1,N,np.clip(nullc[k],1e-6,0.999))>FDR_ADMIT: continue
+    votes[k]=K; nolad+=1
+print(f"  ladder-fallback admitted {nolad} mass-unique no-SMILES compounds (skipped {nolad_skip} isobaric)")
 print(f"\n{'consensus>=M':>12}{'admitted':>9}{'recall':>8}{'precision':>10}")
 for Mv in range(1,K+1):
     sel=votes>=Mv; a=int(sel.sum())
     if not a: continue
-    print(f"{Mv:>12}{a:>9}{inmaf[sel].sum()/nmaf:>8.3f}{inmaf[sel].sum()/a:>10.3f}")
+    print(f"{Mv:>12}{a:>9}{_recall(sel):>8.3f}{inmaf[sel].sum()/a:>10.3f}")
 
 # ---- decomposition of the M=1 admitted set (honest true-precision accounting) ----
 sel=votes>=1
@@ -189,7 +220,7 @@ def cluster_score(selmask):
         else: clusters.append([k])
     ncl=len(clusters)
     tp_cl=sum(any(inmaf[k] for k in cl) for cl in clusters)
-    maf_cov=len(set(k for cl in clusters for k in cl if inmaf[k]))
+    maf_cov=len(set(mid[k] for cl in clusters for k in cl if inmaf[k]))
     return ncl,tp_cl,maf_cov
 print("\n--- COMPOUND-CLUSTER scoring (one annotation per co-eluting isobar group) ---")
 print(f"{'consensus>=M':>12}{'clusters':>9}{'recall':>8}{'precision':>11}")
@@ -232,9 +263,109 @@ if len(admset)>20:
             if abs(MZc[k]-MZc[j])<=MZc[k]*ISOBAR_PPM*1e-6 and abs(gapex[k]-gapex[j])<=TIGHT: cl.append(k); break
         else: clusters.append([k])
     ncl=len(clusters); tp_cl=sum(any(inmaf[k] for k in cl) for cl in clusters)
-    maf_cov=len(set(k for cl in clusters for k in cl if inmaf[k]))
+    maf_cov=len(set(mid[k] for cl in clusters for k in cl if inmaf[k]))
     nres_maf=sum(inmaf[k] for k in np.where(rescued)[0])
     print(f"\n--- MISLOCATION RESCUE (wide={WIDE}s, final model on {len(admset)} admitted) ---")
     print(f"rescued compounds            : {int(rescued.sum())}  (of which MAF: {nres_maf})")
     print(f"cluster recall  : {maf_cov}/{nmaf} = {maf_cov/nmaf:.3f}   (was 0.532 pre-rescue)")
     print(f"cluster precision: {tp_cl}/{ncl} = {tp_cl/ncl:.3f}   (was 0.658 pre-rescue)")
+
+# ---- WHERE precision is lost: FP-cluster decomposition + conflation test ----
+def fp_decomp(selmask):
+    idx=[k for k in np.where(selmask)[0] if not np.isnan(gapex[k])]
+    clusters=[]
+    for k in sorted(idx,key=lambda k:(-strength[k] if strength[k]>0 else 0)):
+        for cl in clusters:
+            j=cl[0]
+            if abs(MZc[k]-MZc[j])<=MZc[k]*ISOBAR_PPM*1e-6 and abs(gapex[k]-gapex[j])<=TIGHT: cl.append(k); break
+        else: clusters.append([k])
+    covered=set(k for cl in clusters for k in cl if inmaf[k])
+    fn=[k for k in range(n) if inmaf[k] and k not in covered]   # MAF compounds we MISSED
+    fn_mz=np.array([MZc[k] for k in fn]) if fn else np.array([])
+    cats=defaultdict(int); tp_sizes=[]; fp_n=0
+    for cl in clusters:
+        if any(inmaf[k] for k in cl): tp_sizes.append(len(cl)); continue
+        fp_n+=1; mz=MZc[cl[0]]
+        iso_fn = len(fn_mz)>0 and bool((np.abs(fn_mz-mz)<=mz*ISOBAR_PPM*1e-6).any())
+        from_ladder = all(comp[k]["desc"] is None for k in cl)
+        if iso_fn: cats["conflation: isobaric MISSED-MAF exists (wrong compound called for an answer-key peak)"]+=1
+        elif from_ladder: cats["ladder no-SMILES FP (imprecise RI->sec)"]+=1
+        else: cats["genuine novel/noise (no MAF compound at this m/z)"]+=1
+    return clusters,cats,tp_sizes,fp_n
+print("\n=== PRECISION-LOSS DECOMPOSITION (M=1 FP clusters) ===")
+cl1,cats,tps,fpn=fp_decomp(votes>=1)
+print(f"total clusters {len(cl1)}  TP {len(tps)}  FP {fpn}")
+for c,v in sorted(cats.items(),key=lambda x:-x[1]): print(f"  {v:>4}  ({v/max(fpn,1):.2f} of FPs)  {c}")
+import numpy as _np
+print(f"\nTP-cluster size (conflation within correct calls): median {int(_np.median(tps))}  mean {_np.mean(tps):.2f}  max {max(tps)}  (1=clean, >1=isobaric candidates listed)")
+print(f"  TP clusters that are CLEAN (size 1): {sum(1 for s in tps if s==1)}/{len(tps)}")
+
+# ---- ADDUCT ATTRIBUTION: are the FP peaks adducts/isotopes of co-eluting stronger compounds? ----
+fpl=df[df.platform==PLAT]; fmz=fpl.mz.to_numpy(); frt=fpl.rt.to_numpy(); fint=fpl.intensity.to_numpy()
+_o=np.argsort(fmz); fmz,frt,fint=fmz[_o],frt[_o],fint[_o]
+# neg-mode: peak at m/z X is a non-principal ion if a co-eluting STRONGER feature sits at X-delta
+# (i.e. X = that compound's [M-H] + delta). deltas from [M-H]:
+ADD={"13C-isotope":1.00336,"[M+Cl]":35.97668,"[M+FA-H]":46.00548,"[M+Hac-H]":60.02113,
+     "[M+Na-2H]":20.97417,"[M+K-2H]":36.94816,"in-source +H2O":18.01056}
+def feat_int(mz,rt):
+    t=mz*MZ_PPM*1e-6; lo=np.searchsorted(fmz,mz-t); hi=np.searchsorted(fmz,mz+t)
+    best=0.0
+    for j in range(lo,hi):
+        if abs(frt[j]-rt)<=TIGHT: best=max(best,fint[j])
+    return best
+def adduct_of(mz,rt):
+    my=feat_int(mz,rt)
+    for name,d in ADD.items():
+        t=mz*MZ_PPM*1e-6; lo=np.searchsorted(fmz,mz-d-t); hi=np.searchsorted(fmz,mz-d+t)
+        for j in range(lo,hi):
+            if abs(frt[j]-rt)<=TIGHT and fint[j]>max(my,1)*1.3: return name
+    return None
+cl1,_,_,_=fp_decomp(votes>=1)
+add_fp=defaultdict(int); nonadd=0; fp_tot=0
+for cl in cl1:
+    if any(inmaf[k] for k in cl): continue
+    fp_tot+=1; k=cl[0]
+    if np.isnan(gapex[k]): nonadd+=1; continue
+    a=adduct_of(MZc[k],gapex[k])
+    if a: add_fp[a]+=1
+    else: nonadd+=1
+print(f"\n=== ADDUCT ATTRIBUTION of M=1 FP clusters (n={fp_tot}) ===")
+tot_add=sum(add_fp.values())
+print(f"explained as adduct/isotope of a co-eluting STRONGER compound: {tot_add}  ({tot_add/max(fp_tot,1):.2f})")
+for a,v in sorted(add_fp.items(),key=lambda x:-x[1]): print(f"    {v:>3}  {a}")
+print(f"NOT adduct-explained (genuine novel / noise): {nonadd}  ({nonadd/max(fp_tot,1):.2f})")
+
+# ---- BIDIRECTIONAL adduct+fragment FILTER -> precision recovery ----
+LOSS={"-H2O":18.01056,"-CO2":43.98983,"-CO":27.99491,"-NH3":17.02655,"-CH2O":30.01056,"-hexose":162.05282,"-SO3":79.95682,"-H2O-H2O":36.02112}
+def explained(mz,rt):
+    my=feat_int(mz,rt)
+    for name,d in ADD.items():   # our peak is a heavier adduct; principal lighter at mz-d
+        t=mz*MZ_PPM*1e-6; lo=np.searchsorted(fmz,mz-d-t); hi=np.searchsorted(fmz,mz-d+t)
+        for j in range(lo,hi):
+            if abs(frt[j]-rt)<=TIGHT and fint[j]>max(my,1)*1.3: return name
+    for name,d in LOSS.items():   # our peak is an in-source fragment; principal heavier at mz+loss
+        t=mz*MZ_PPM*1e-6; lo=np.searchsorted(fmz,mz+d-t); hi=np.searchsorted(fmz,mz+d+t)
+        for j in range(lo,hi):
+            if abs(frt[j]-rt)<=TIGHT and fint[j]>max(my,1)*1.3: return name
+    return None
+filt=np.zeros(n,bool)
+for k in np.where(votes>=1)[0]:
+    if not np.isnan(gapex[k]) and explained(MZc[k],gapex[k]): filt[k]=True
+filt_tp=int((filt&inmaf).sum()); filt_fp=int((filt&~inmaf).sum())
+def cluster_f(selmask):
+    idx=[k for k in np.where(selmask&~filt)[0] if not np.isnan(gapex[k])]
+    clusters=[]
+    for k in sorted(idx,key=lambda k:(-strength[k] if strength[k]>0 else 0)):
+        for cl in clusters:
+            j=cl[0]
+            if abs(MZc[k]-MZc[j])<=MZc[k]*ISOBAR_PPM*1e-6 and abs(gapex[k]-gapex[j])<=TIGHT: cl.append(k); break
+        else: clusters.append([k])
+    ncl=len(clusters); tp=sum(any(inmaf[k] for k in cl) for cl in clusters)
+    cov=len(set(mid[k] for cl in clusters for k in cl if inmaf[k]))
+    return ncl,tp,cov
+print(f"\n=== AFTER bidirectional adduct+fragment FILTER ===")
+print(f"filtered {int(filt.sum())} admits ({filt_fp} FP, {filt_tp} TP)")
+print(f"{'>=M':>4}{'clusters':>9}{'recall':>8}{'precision':>11}")
+for Mv in [1,2,3]:
+    ncl,tp,cov=cluster_f(votes>=Mv)
+    if ncl: print(f"{Mv:>4}{ncl:>9}{cov/nmaf:>8.3f}{tp/ncl:>11.3f}")
