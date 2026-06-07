@@ -369,3 +369,53 @@ print(f"{'>=M':>4}{'clusters':>9}{'recall':>8}{'precision':>11}")
 for Mv in [1,2,3]:
     ncl,tp,cov=cluster_f(votes>=Mv)
     if ncl: print(f"{Mv:>4}{ncl:>9}{cov/nmaf:>8.3f}{tp/ncl:>11.3f}")
+
+# ===== CLASSIFY THE MAF MISSES (FNs) =====
+# recover the M=1 cluster coverage
+_cl,_,_=cluster_score(votes>=1) if False else (None,None,None)
+# rebuild clusters for votes>=1
+_idx=[k for k in np.where(votes>=1)[0] if not np.isnan(gapex[k])]
+_clusters=[]
+for k in sorted(_idx,key=lambda k:(-strength[k] if strength[k]>0 else 0)):
+    for cl in _clusters:
+        j=cl[0]
+        if abs(MZc[k]-MZc[j])<=MZc[k]*ISOBAR_PPM*1e-6 and abs(gapex[k]-gapex[j])<=TIGHT: cl.append(k); break
+    else: _clusters.append([k])
+covered_mids=set(mid[k] for cl in _clusters for k in cl if inmaf[k])
+by_mid=defaultdict(list)
+for k in range(n):
+    if inmaf[k]: by_mid[mid[k]].append(k)
+adm=set(np.where(votes>=1)[0])
+def anywhere_strong(k):  # reproducible strong peak at ANY rt
+    cnt=defaultdict(int); mx=0.0
+    for inj in range(N):
+        for rt_,it in peaks[k][inj]:
+            if it>2*FLOOR: cnt[round(rt_/(2*TIGHT))]+=1; mx=max(mx,it)
+    return any(v>=MINREP for v in cnt.values())
+cats=defaultdict(int)
+for m_id,ks in by_mid.items():
+    if m_id in covered_mids: continue                      # recovered, not a miss
+    has_smiles=any(comp[k]["desc"] is not None for k in ks)
+    at_pred=False
+    for k in ks:
+        nr,ap=rep_apex(k,comp[k]["pred"],TIGHT)
+        if nr>=MINREP and ap is not None: at_pred=True; break
+    anyw=any(anywhere_strong(k) for k in ks)
+    sm="" if has_smiles else " [no-SMILES]"
+    if at_pred:
+        # peak at predicted RT but not admitted -> isobar-collapsed or FDR/weak
+        iso=False
+        for k in ks:
+            for a in adm:
+                if a not in ks and abs(MZc[a]-MZc[k])<=MZc[k]*ISOBAR_PPM*1e-6 and not np.isnan(gapex[a]) and abs(gapex[a]-comp[k]["pred"])<=TIGHT: iso=True; break
+            if iso: break
+        cats[("isobar-collapsed (a co-eluting isobar took the peak)" if iso else "at predicted RT but FDR/weak-rejected")+sm]+=1
+    elif anyw:
+        cats["RT-MISLOCATED (strong peak elsewhere at m/z)"+sm]+=1
+    elif not has_smiles:
+        cats["no-SMILES, no clear peak (unreachable + faint)"]+=1
+    else:
+        cats["TRULY ABSENT / sub-floor (no strong peak at m/z)"]+=1
+tot=sum(cats.values())
+print(f"\n===== MAF MISS (FN) CLASSIFICATION =====  total misses: {tot}  (of {nmaf} MAF; recall {1-tot/nmaf:.3f})")
+for c,v in sorted(cats.items(),key=lambda x:-x[1]): print(f"  {v:>4}  ({v/tot:.2f})  {c}")
