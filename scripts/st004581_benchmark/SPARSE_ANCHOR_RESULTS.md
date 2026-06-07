@@ -28,19 +28,38 @@ annotation runs against the full DD via **precision-first iterative propagation*
    peers listed honestly), TP if ANY member is in the MAF. This stops counting one peak as
    two FPs without deleting either compound (recall held, precision up).
 
-## Headline P/R curve (neg, 412 MAF compounds, 8 injections)
+## Headline P/R curve (neg, 412 MAF compounds), compound-cluster scoring
 
-| consensus ≥M | clusters | recall | precision |
-|---|---|---|---|
-| 1 | 234 | **0.532** | **0.658** |
-| 2 | 191 | 0.441 | 0.665 |
-| 3 | 171 | 0.397 | 0.702 |
-| 4 | 149 | 0.330 | 0.685 |
-| 5 | 119 | 0.259 | 0.714 |
+The front has **two regimes** along the consensus knob M; the operating point is a choice.
 
-**Pareto-dominates blanket m/z+RI matching** (0.490 / 0.435) — cluster M=1 is +0.04 recall
-AND +0.22 precision, both axes at once. The forest union (M=1) also beats a single
-propagation chain (0.352 / 0.552) on recall by +0.18 at equal precision.
+**High-precision regime — propagation-only, 8 inj (SMILES-gated):**
+
+| ≥M | recall | precision |
+|---|---|---|
+| 1 | 0.532 | 0.658 |
+| 3 | 0.397 | 0.702 |
+| 5 | 0.259 | 0.714 |
+
+**High-recall regime — 16 inj + ladder-fallback (no-SMILES via RI→sec), MINREP=30%:**
+
+| ≥M | recall | precision |
+|---|---|---|
+| 1 | **0.665** | 0.592 |
+| 3 | 0.552 | 0.593 |
+| 5 | 0.419 | 0.567 |
+| +rescue | 0.680 | 0.578 |
+
+**Both Pareto-dominate blanket m/z+RI matching** (0.490 / 0.435). The two regimes *cross* — at
+matched recall ~0.53 propagation-only wins on precision (0.658 vs ~0.59); the ladder-fallback
+*extends* recall to ~0.67–0.70 (real reachable ceiling, vs the 0.80 SMILES+detection cap) but
+at lower precision, because no-SMILES compounds sit at the imprecise ladder RT with no
+structure-model refinement. **NOTE: the original 0.532 "headline" was SMILES-gating-suppressed
+— 84 MAF compounds (20%) had no SMILES and were auto-FN'd; PubChem name-resolution recovers
+only 2/84 (Metabolon-proprietary names), so the ladder-fallback is the reachability fix.**
+
+To move the WHOLE front out (both axes), the two levers are an **identity axis (MS2/envelope)**
+for precision and **better anchor placement** (kit-design map) to tighten the ladder so the
+no-SMILES/mislocated compounds stop being low-precision. MINREP/FDR only slide along the front.
 
 ## Recall is RT-misprediction-bound, not detection-bound
 
@@ -72,6 +91,29 @@ needs an **independent identity axis** — MS2 or the isotope/adduct envelope. T
 neighbor (squid_inc `localize.py`) presence prior is *partly redundant* with our structure-
 space propagation; a biochemical/pathway prior can only be a **flagged final tiebreaker**
 (it inherits prior calls = circular).
+
+## Scoring correctness + lever taxonomy (2026-06-07)
+
+**MAF matching fix.** Name-keying undercounts: the DD carries synonym variants the normalized-
+name key splits (`isovalerate` vs `isovalerate (c5)`, `azelate (nonanedioate; c9)` vs `azelaic
+acid`). Admitting one synonym while the MAF lists another scores FP + FN for the *same*
+compound. Fix = **InChIKey-OR-name matching, recall over distinct MAF compounds** (`forest_prop.py`).
+Honest impact: raw precision +0.106 but **cluster precision only +0.022** (cluster scoring
+already collapses co-eluting synonyms); recall flat. Real correctness fix, modest headline.
+
+**Lever taxonomy — what actually moves the front:**
+| lever | effect | verdict |
+|---|---|---|
+| compound-cluster scoring | recall held, precision +0.11 vs raw dedup | **CLEAN** |
+| InChIKey-OR-name matching | cluster precision +0.02, recall ~0 | **CLEAN (correctness)** |
+| ladder-fallback (no-SMILES, RI→sec) | recall +0.13, precision −0.07 | trade (recall lever) |
+| more injections (8→16) | recall +0.13, precision −0.11 | trade (recall lever) |
+| adduct/fragment filter | precision +0.10, recall −0.10 (cuts 41 TP) | trade |
+| mass-unique ladder gate | recall −0.09, precision ~0 | net loss |
+| **MS2 / isotope-envelope identity** | not built | **only thing that breaks the ~0.59 ceiling** |
+
+FP composition at the cluster operating point: **conflation 6%, novel/noise 58%, ladder
+no-SMILES 36%** — precision is genuinely identity-bound, not a scoring artifact.
 
 ## Disciplines (load-bearing, do not violate)
 
