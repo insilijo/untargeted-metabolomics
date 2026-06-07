@@ -24,9 +24,12 @@ _PCFG={"neg":("lc/ms neg","anchors_lc_ms_neg.csv","Method3"),
 _pk=sys.argv[1] if len(sys.argv)>1 else "neg"
 PLAT,_kf,_meth=_PCFG[_pk]
 KIT=f"/root/untargeted-metabolomics/data/anchor_panels/{_kf}"; SMI="/tmp/dd_pubchem_smiles.csv"
-MZML=sorted(glob.glob(f"/root/SQuID-INC/data/st004581/mzml/{_meth}_*COLU*.mzML"))[:8]
-MZ_PPM=7.0; FLOOR=50000.0; TIGHT=6.0; MINREP=max(2,round(0.30*len(MZML))); NRAND=60; FDR_ADMIT=0.01
-ISOBAR_PPM=10.0; K=10; NFEAT=15; ik14=lambda s:(s or "")[:14]
+_NINJ=int(sys.argv[3]) if len(sys.argv)>3 else 8
+MZML=sorted(glob.glob(f"/root/SQuID-INC/data/st004581/mzml/{_meth}_*COLU*.mzML"))[:_NINJ]
+MZ_PPM=7.0; FLOOR=50000.0; TIGHT=6.0; MINREP=max(2,round(0.30*len(MZML))); NRAND=60
+FDR_ADMIT=float(sys.argv[2]) if len(sys.argv)>2 else 0.01
+print(f"## SWEEP CONFIG: FDR_ADMIT={FDR_ADMIT}  n_inj={len(MZML)}  MINREP={max(2,round(0.30*len(MZML)))}",flush=True)
+ISOBAR_PPM=10.0; K=int(sys.argv[4]) if len(sys.argv)>4 else 10; NFEAT=15; ik14=lambda s:(s or "")[:14]
 maf=set(); maf_ik=set(); name2id={}; ik2id={}; _eid=0
 for r in csv.DictReader(open(GT)):
     if r.get("unannotatable","")=="true": continue
@@ -419,3 +422,26 @@ for m_id,ks in by_mid.items():
 tot=sum(cats.values())
 print(f"\n===== MAF MISS (FN) CLASSIFICATION =====  total misses: {tot}  (of {nmaf} MAF; recall {1-tot/nmaf:.3f})")
 for c,v in sorted(cats.items(),key=lambda x:-x[1]): print(f"  {v:>4}  ({v/tot:.2f})  {c}")
+
+# ===== PROBABILISTIC OUTPUT: forest-consensus presence probability + calibration =====
+prob=votes/K   # fraction of forest chains admitting = presence probability
+_sel=votes>=1
+_pidx=[k for k in np.where(_sel)[0] if not np.isnan(gapex[k])]
+_pcl=[]
+for k in sorted(_pidx,key=lambda k:(-strength[k] if strength[k]>0 else 0)):
+    for cl in _pcl:
+        j=cl[0]
+        if abs(MZc[k]-MZc[j])<=MZc[k]*ISOBAR_PPM*1e-6 and abs(gapex[k]-gapex[j])<=TIGHT: cl.append(k); break
+    else: _pcl.append([k])
+clp=[(max(prob[k] for k in cl), any(inmaf[k] for k in cl)) for cl in _pcl]
+print("\n=== PRESENCE-PROBABILITY CALIBRATION (cluster prob = max member votes/K) ===")
+print(f"{'prob bin':>12}{'clusters':>10}{'obs precision':>15}  (calibrated => obs ~ bin midpoint)")
+for lo,hi in [(0.0,0.2),(0.2,0.4),(0.4,0.6),(0.6,0.8),(0.8,1.001)]:
+    inb=[tp for p,tp in clp if lo<=p<hi]
+    if inb: print(f"  [{lo:.1f},{hi:.1f}){'':>4}{len(inb):>10}{sum(inb)/len(inb):>15.3f}")
+print(f"\n=== P/R as continuous PROBABILITY threshold ===\n{'prob>=':>8}{'clusters':>9}{'recall':>8}{'precision':>11}")
+for tau in [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
+    cls=[cl for cl in _pcl if max(prob[k] for k in cl)>=tau]
+    if not cls: continue
+    tp=sum(any(inmaf[k] for k in cl) for cl in cls); cov=len(set(mid[k] for cl in cls for k in cl if inmaf[k]))
+    print(f"{tau:>8.1f}{len(cls):>9}{cov/nmaf:>8.3f}{tp/len(cls):>11.3f}")
