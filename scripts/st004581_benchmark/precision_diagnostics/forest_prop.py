@@ -674,3 +674,27 @@ print(f"FP clusters: {len(fp_cls)}  -> cross-platform-real (in MAF on ANOTHER pl
 print(f"  neg-only precision           : {nTP}/{ncl} = {nTP/ncl:.3f}")
 print(f"  cross-platform-corrected prec: {nTP+len(crossplat)}/{ncl} = {(nTP+len(crossplat))/ncl:.3f}")
 print("  examples (name, MS2ent): "+", ".join(f"{nm}({e:.2f})" if e>=0 else nm for nm,e in sorted(crossplat,key=lambda x:-x[1])[:12]))
+
+# ===== SUBSTITUTION-ONLY (IDENTITY) PRECISION =====
+# FP counts ONLY if the peak belongs to a DIFFERENT present MAF compound (misID); a call on a
+# peak no MAF compound owns (novel) is excluded from the denominator, not penalized.
+negmaf_k=[k for k in range(n) if inmaf[k]]
+def is_correct(cl): return any(inmaf[k] or (comp[k]["ik"] in full_maf_ik) for k in cl)
+def peak_owned_by_other_maf(cl):
+    k=max(cl,key=lambda k:strength[k]); mzk=MZc[k]; ap=gapex[k]
+    # an isobaric neg-MAF compound expected to elute here (its peak, mislabeled as ours) = substitution
+    for j in negmaf_k:
+        if abs(MZc[j]-mzk)<=mzk*ISOBAR_PPM*1e-6 and abs(comp[j]["pred"]-ap)<=TIGHT: return True
+    return False
+correct=0; subst=0; novel=0
+for cl in clsB:
+    if is_correct(cl): correct+=1
+    elif peak_owned_by_other_maf(cl): subst+=1
+    else: novel+=1
+print(f"\n===== SUBSTITUTION-ONLY (IDENTITY) PRECISION (best config) =====")
+print(f"  correct (right MAF compound, incl cross-platform): {correct}")
+print(f"  substitution FP (peak owned by a DIFFERENT MAF compound = real misID): {subst}")
+print(f"  novel (peak no MAF compound owns -> EXCLUDED, not penalized): {novel}")
+print(f"  >>> neg-only closed-world precision : {sum(any(inmaf[k] for k in cl) for cl in clsB)}/{len(clsB)} = {sum(any(inmaf[k] for k in cl) for cl in clsB)/len(clsB):.3f}")
+print(f"  >>> cross-platform-credited prec   : {correct}/{len(clsB)} = {correct/len(clsB):.3f}")
+print(f"  >>> SUBSTITUTION-ONLY identity prec: {correct}/{correct+subst} = {correct/(correct+subst):.3f} <<<")
