@@ -445,3 +445,42 @@ for tau in [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
     if not cls: continue
     tp=sum(any(inmaf[k] for k in cl) for cl in cls); cov=len(set(mid[k] for cl in cls for k in cl if inmaf[k]))
     print(f"{tau:>8.1f}{len(cls):>9}{cov/nmaf:>8.3f}{tp/len(cls):>11.3f}")
+
+# ===== MS2 IDENTITY SCORE: does in-silico fragment matching discriminate TP from FP? =====
+from squid_inc.features.fragment_tree import score_fragment_match
+ms2=[]
+for mp in MZML:
+    for spec in pymzml.run.Reader(mp):
+        if spec.ms_level!=2: continue
+        try: pmz=spec.selected_precursors[0]["mz"]
+        except Exception: continue
+        mzs=np.asarray(spec.mz); iis=np.asarray(spec.i)
+        if len(mzs): ms2.append((float(pmz), spec.scan_time_in_minutes()*60, list(zip(mzs.tolist(),iis.tolist()))))
+pmz_arr=np.array([m[0] for m in ms2]); prt_arr=np.array([m[1] for m in ms2])
+print(f"\n=== MS2 IDENTITY SCORE ===  collected {len(ms2)} MS2 scans")
+def best_ms2(mz,rt):
+    t=mz*MZ_PPM*1e-6; m=(np.abs(pmz_arr-mz)<=t)&(np.abs(prt_arr-rt)<=TIGHT)
+    idx=np.where(m)[0]
+    if not len(idx): return None
+    return ms2[idx[np.argmin(np.abs(prt_arr[idx]-rt))]][2]
+def auc(pos,neg):
+    if not pos or not neg: return float('nan')
+    pos=np.array(pos); neg=np.array(neg); c=sum((pos[:,None]>neg[None,:]).sum() + 0.5*(pos[:,None]==neg[None,:]).sum() for _ in [0])
+    return c/(len(pos)*len(neg))
+stp=[]; sfp=[]; nocov_tp=0; nocov_fp=0
+for k in np.where(votes>=1)[0]:
+    sm=smi.get(comp[k]["ik"])
+    if not sm: continue
+    pk=best_ms2(MZc[k], gapex[k] if not np.isnan(gapex[k]) else comp[k]["pred"])
+    if pk is None:
+        if inmaf[k]: nocov_tp+=1
+        else: nocov_fp+=1
+        continue
+    sc=score_fragment_match(sm, pk, MZc[k], mode="neg", mz_tol_ppm=15.0)
+    (stp if inmaf[k] else sfp).append(sc)
+print(f"  MS2-scored admits: TP {len(stp)} (median {np.median(stp) if stp else float('nan'):.3f}), FP {len(sfp)} (median {np.median(sfp) if sfp else float('nan'):.3f})")
+print(f"  no-MS2-coverage admits: TP {nocov_tp}, FP {nocov_fp}")
+print(f"  >>> MS2 identity-score AUC (TP vs FP, MS2-covered admits): {auc(stp,sfp):.3f} <<<")
+for thr in [0.5,0.6,0.7,0.8]:
+    tk=sum(s>=thr for s in stp); fk=sum(s>=thr for s in sfp)
+    if tk+fk: print(f"    keep MS2-score>={thr}: precision {tk/(tk+fk):.3f}  (TP {tk}/{len(stp)}, FP {fk}/{len(sfp)})")
