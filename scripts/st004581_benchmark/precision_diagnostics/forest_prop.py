@@ -580,3 +580,56 @@ for name,uc,uk,wl,mt in levels:
     r,p=ablpr(uc,uk,wl,mt)
     print(f"{name:<26}{r:>8.3f}{p:>11.3f}{r-pr_prev[0]:>+9.3f}{p-pr_prev[1]:>+8.3f}")
     pr_prev=(r,p)
+
+# ===== INVESTIGATE FAILURES at best config (forest+cluster+ik, ladder OFF, M=1) =====
+import math
+keepB=(votes>=1).copy()
+for k in ladder_admit: keepB[k]=False
+idxB=[k for k in np.where(keepB)[0] if not np.isnan(gapex[k])]
+clsB=[]
+for k in sorted(idxB,key=lambda k:(-strength[k] if strength[k]>0 else 0)):
+    for cl in clsB:
+        j=cl[0]
+        if abs(MZc[k]-MZc[j])<=MZc[k]*ISOBAR_PPM*1e-6 and abs(gapex[k]-gapex[j])<=TIGHT: cl.append(k); break
+    else: clsB.append([k])
+covered=set(mid[k] for cl in clsB for k in cl if inmaf[k])
+maf_mz_all=np.array([MZc[j] for j in range(n) if inmaf[j]])
+fn_mz_arr=np.array([MZc[j] for j in range(n) if inmaf[j] and mid[j] not in covered])
+fp_cls=[cl for cl in clsB if not any(inmaf[k] for k in cl)]
+def L(x): return round(math.log10(x+1),1)
+print(f"\n===== FAILURE INVESTIGATION (best config: {len(clsB)} clusters, {sum(any(inmaf[k] for k in cl) for cl in clsB)} TP, {len(fp_cls)} FP) =====")
+print("\n--- TOP 22 FALSE POSITIVES (by intensity) ---")
+print(f"{'name':<26}{'m/z':>9}{'apexRT':>7}{'logI':>5}{'nmemb':>6}{'class':>16}{'MS2ent':>7}")
+def classify_fp(k):
+    if len(fn_mz_arr) and (np.abs(fn_mz_arr-MZc[k])<=MZc[k]*ISOBAR_PPM*1e-6).any(): return "conflation-FN"
+    try:
+        a=adduct_of(MZc[k],gapex[k])
+        if a: return "adduct:"+a[:8]
+    except Exception: pass
+    return "novel/noise"
+for cl in sorted(fp_cls,key=lambda cl:-max(strength[k] for k in cl))[:22]:
+    k=max(cl,key=lambda k:strength[k]); e=ent[k] if not np.isnan(ent[k]) else -1
+    print(f"{comp[k]['name'][:25]:<26}{MZc[k]:>9.3f}{gapex[k]:>7.0f}{L(strength[k]):>5}{len(cl):>6}{classify_fp(k):>16}{(f'{e:.2f}' if e>=0 else '  -'):>7}")
+# FN
+fn_ids=[m for m in set(mid[mid>=0]) if m not in covered]
+fn_reps={}
+for k in range(n):
+    if inmaf[k] and mid[k] in fn_ids:
+        if mid[k] not in fn_reps or strength[k]>strength[fn_reps[mid[k]]]: fn_reps[mid[k]]=k
+def miss_reason(k):
+    nr,ap=rep_apex(k,comp[k]["pred"],TIGHT)
+    if nr>=MINREP: return "gate-rejected@predRT"
+    if strength[k]>2*FLOOR: return "RT-mislocated"
+    if strength[k]>FLOOR: return "faint(50-100k)"
+    if comp[k]["desc"] is None: return "no-SMILES+absent"
+    return "absent/subfloor"
+print(f"\n--- TOP 22 FALSE NEGATIVES (MAF missed, by intensity) ---  total FN ids: {len(fn_ids)}")
+print(f"{'name':<26}{'m/z':>9}{'predRT':>7}{'logI':>5}{'reason':>22}")
+for m,k in sorted(fn_reps.items(),key=lambda kv:-strength[kv[1]])[:22]:
+    print(f"{comp[k]['name'][:25]:<26}{MZc[k]:>9.3f}{comp[k]['pred']:>7.0f}{L(strength[k]):>5}{miss_reason(k):>22}")
+# patterns: FP & FN by m/z region
+print("\n--- m/z distribution (FP cluster reps vs FN) ---")
+fpmz=np.array([MZc[max(cl,key=lambda k:strength[k])] for cl in fp_cls]); 
+fnmz=np.array([MZc[k] for k in fn_reps.values()])
+for lo,hi in [(0,150),(150,250),(250,400),(400,600),(600,2000)]:
+    print(f"  m/z [{lo},{hi}): FP {int(((fpmz>=lo)&(fpmz<hi)).sum())}  FN {int(((fnmz>=lo)&(fnmz<hi)).sum())}")
