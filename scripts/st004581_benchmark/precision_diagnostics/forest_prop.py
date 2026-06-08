@@ -515,3 +515,68 @@ print(f"  >>> REFERENCE-MS2 AUC (TP vs FP): {auc(rtp,rfp):.3f} <<<   (in-silico 
 for thr in [0.3,0.4,0.5,0.6,0.7]:
     tk=sum(s>=thr for s in rtp); fk=sum(s>=thr for s in rfp)
     if tk+fk: print(f"    keep entropy>={thr}: precision {tk/(tk+fk):.3f}  (TP {tk}/{len(rtp)}, FP {fk}/{len(rfp)})")
+
+# ===== P/R WITH MS2 CERTIFICATION FILTER (drop MS2-covered-but-refuted; keep uncovered) =====
+ent=np.full(n,np.nan)
+for k in np.where(votes>=1)[0]:
+    refs=reflib.get(comp[k]["ik"])
+    if not refs: continue
+    pk=best_ms2(MZc[k], gapex[k] if not np.isnan(gapex[k]) else comp[k]["pred"])
+    if pk is None: continue
+    obs=[(float(m),float(i)) for m,i in pk]
+    ent[k]=max(entropy_similarity(obs,ref,mz_tol=0.02) for ref in refs)
+def cluster_pr(keepmask):
+    idx=[k for k in np.where(keepmask)[0] if not np.isnan(gapex[k])]
+    cls=[]
+    for k in sorted(idx,key=lambda k:(-strength[k] if strength[k]>0 else 0)):
+        for cl in cls:
+            j=cl[0]
+            if abs(MZc[k]-MZc[j])<=MZc[k]*ISOBAR_PPM*1e-6 and abs(gapex[k]-gapex[j])<=TIGHT: cl.append(k); break
+        else: cls.append([k])
+    ncl=len(cls); tp=sum(any(inmaf[k] for k in cl) for cl in cls)
+    cov=len(set(mid[k] for cl in cls for k in cl if inmaf[k]))
+    return ncl,cov/nmaf,(tp/ncl if ncl else 0)
+print(f"\n===== P/R WITH MS2 CERTIFICATION (n_covered_admits={int((~np.isnan(ent)).sum())}) =====")
+print(f"{'mode':<28}{'M':>3}{'clusters':>9}{'recall':>8}{'precision':>11}")
+for Mv in [1,2,3]:
+    base=votes>=Mv
+    ncl,r,p=cluster_pr(base); print(f"{'baseline (no MS2)':<28}{Mv:>3}{ncl:>9}{r:>8.3f}{p:>11.3f}")
+    for tau in [0.4,0.6]:
+        keep=base.copy()
+        for k in np.where(base)[0]:
+            if not np.isnan(ent[k]) and ent[k]<tau: keep[k]=False
+        ncl,r,p=cluster_pr(keep); print(f"{'  +MS2-refute drop <'+str(tau):<28}{Mv:>3}{ncl:>9}{r:>8.3f}{p:>11.3f}")
+
+# ===== ABLATION WATERFALL: marginal P/R gain of each lever (cluster M=1) =====
+mid_name=np.array([name2id.get(comp[k]["name"],-1) for k in range(n)])
+ladder_admit=set(k for k in range(n) if comp[k]["desc"] is None and votes[k]>=1)
+def ablpr(use_cluster,use_ik,with_ladder,ms2_tau,Mv=1):
+    _mid = mid if use_ik else mid_name; _inm=_mid>=0
+    keep=(votes>=Mv).copy()
+    if not with_ladder:
+        for k in ladder_admit: keep[k]=False
+    if ms2_tau>0:
+        for k in np.where(keep)[0]:
+            if not np.isnan(ent[k]) and ent[k]<ms2_tau: keep[k]=False
+    if use_cluster:
+        idx=[k for k in np.where(keep)[0] if not np.isnan(gapex[k])]; cls=[]
+        for k in sorted(idx,key=lambda k:(-strength[k] if strength[k]>0 else 0)):
+            for cl in cls:
+                j=cl[0]
+                if abs(MZc[k]-MZc[j])<=MZc[k]*ISOBAR_PPM*1e-6 and abs(gapex[k]-gapex[j])<=TIGHT: cl.append(k); break
+            else: cls.append([k])
+        ncl=len(cls); tp=sum(any(_inm[k] for k in cl) for cl in cls); cov=len(set(_mid[k] for cl in cls for k in cl if _inm[k]))
+        return cov/nmaf,(tp/ncl if ncl else 0)
+    a=int(keep.sum()); cov=len(set(_mid[keep&_inm])); tp=int((keep&_inm).sum())
+    return cov/nmaf,(tp/a if a else 0)
+levels=[("forest raw (name-match)",False,False,False,0),("+ cluster scoring",True,False,False,0),
+        ("+ InChIKey matching",True,True,False,0),("+ ladder-fallback",True,True,True,0),
+        ("+ MS2 certify (>=0.5)",True,True,True,0.5)]
+print("\n===== ABLATION WATERFALL (neg, cluster M=1) — marginal gain per lever =====")
+print(f"{'lever':<26}{'recall':>8}{'precision':>11}{'dRecall':>9}{'dPrec':>8}")
+print(f"{'blanket m/z+RI [ref]':<26}{0.490:>8.3f}{0.435:>11.3f}")
+pr_prev=(0.490,0.435)
+for name,uc,uk,wl,mt in levels:
+    r,p=ablpr(uc,uk,wl,mt)
+    print(f"{name:<26}{r:>8.3f}{p:>11.3f}{r-pr_prev[0]:>+9.3f}{p-pr_prev[1]:>+8.3f}")
+    pr_prev=(r,p)

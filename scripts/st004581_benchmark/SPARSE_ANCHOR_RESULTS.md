@@ -92,6 +92,25 @@ neighbor (squid_inc `localize.py`) presence prior is *partly redundant* with our
 space propagation; a biochemical/pathway prior can only be a **flagged final tiebreaker**
 (it inherits prior calls = circular).
 
+## ABLATION WATERFALL — marginal P/R gain per lever (neg, cluster M=1)
+
+| lever (cumulative) | recall | precision | ΔRecall | ΔPrec |
+|---|---|---|---|---|
+| blanket m/z+RI [ref] | 0.490 | 0.435 | — | — |
+| + forest propagation | 0.552 | 0.541 | +0.062 | +0.106 |
+| + cluster scoring | 0.552 | 0.648 | +0.000 | **+0.107** |
+| + InChIKey matching | **0.565** | **0.680** | +0.013 | +0.032 |
+| + ladder-fallback | 0.583 | 0.590 | +0.018 | −0.090 |
+| + MS2 certify (as filter) | 0.479 | 0.561 | −0.104 | −0.029 |
+
+**Best operating point = forest + cluster + InChIKey: 0.565 / 0.680.** The top three are clean
+wins (cluster scoring is the biggest single precision lever, +0.107, recall-free). Ladder-fallback
+is a recall-for-precision trade (off by default); **MS2-as-a-filter is counterproductive** —
+the MS2-covered subset is already high-precision (0.82, DDA abundance bias), so filtering within
+it shrinks the high-precision portion and drags the average down. **MS2 is a CERTIFICATION overlay
+(flag a ≥0.90-precision tier, entropy≥0.7), NOT a filter.** Reference-MS2 entropy AUC TP-vs-FP
+= 0.603 (in-silico 0.555), capped by DDA chimeric spectra.
+
 ## Scoring correctness + lever taxonomy (2026-06-07)
 
 **MAF matching fix.** Name-keying undercounts: the DD carries synonym variants the normalized-
