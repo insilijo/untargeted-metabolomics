@@ -484,3 +484,34 @@ print(f"  >>> MS2 identity-score AUC (TP vs FP, MS2-covered admits): {auc(stp,sf
 for thr in [0.5,0.6,0.7,0.8]:
     tk=sum(s>=thr for s in stp); fk=sum(s>=thr for s in sfp)
     if tk+fk: print(f"    keep MS2-score>={thr}: precision {tk/(tk+fk):.3f}  (TP {tk}/{len(stp)}, FP {fk}/{len(sfp)})")
+
+# ===== REFERENCE-SPECTRAL MS2 MATCHING (experimental libraries) =====
+import json as _json
+from squid_inc.features.ms2_similarity import entropy_similarity, cosine_similarity
+_P="/mnt/volume-hel1-1/data/processed/"
+_our=set(comp[k]["ik"] for k in range(n) if comp[k]["ik"])
+reflib={}
+for fn in ["ms2_library_massbank_full_neg.json","ms2_library_mona_neg.json","ms2_library_gnps_neg.json"]:
+    try:
+        d=_json.load(open(_P+fn))
+        for kk,v in d.items():
+            ik=kk[:14]
+            if ik in _our: reflib.setdefault(ik,[]).append([(float(a),float(b)) for a,b in v])
+    except Exception as e: print("reflib load fail",fn,e)
+print(f"\n=== REFERENCE-SPECTRAL MS2 MATCHING ===  our compounds with a neg reference: {len(reflib)}")
+rtp=[]; rfp=[]; ncov_tp=0; ncov_fp=0
+for k in np.where(votes>=1)[0]:
+    refs=reflib.get(comp[k]["ik"])
+    pk=best_ms2(MZc[k], gapex[k] if not np.isnan(gapex[k]) else comp[k]["pred"]) if refs else None
+    if not refs or pk is None:
+        if inmaf[k]: ncov_tp+=1
+        else: ncov_fp+=1
+        continue
+    obs=[(float(m),float(i)) for m,i in pk]
+    sc=max(entropy_similarity(obs,ref,mz_tol=0.02) for ref in refs)
+    (rtp if inmaf[k] else rfp).append(sc)
+print(f"  reference-scored admits: TP {len(rtp)} (median {np.median(rtp) if rtp else float('nan'):.3f}), FP {len(rfp)} (median {np.median(rfp) if rfp else float('nan'):.3f})")
+print(f"  >>> REFERENCE-MS2 AUC (TP vs FP): {auc(rtp,rfp):.3f} <<<   (in-silico was 0.555)")
+for thr in [0.3,0.4,0.5,0.6,0.7]:
+    tk=sum(s>=thr for s in rtp); fk=sum(s>=thr for s in rfp)
+    if tk+fk: print(f"    keep entropy>={thr}: precision {tk/(tk+fk):.3f}  (TP {tk}/{len(rtp)}, FP {fk}/{len(rfp)})")
