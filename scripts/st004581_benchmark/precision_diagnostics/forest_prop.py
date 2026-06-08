@@ -99,7 +99,28 @@ def rep_apex(k,pred,W):
             nrep+=1; j=np.argmax(P[m,1])
             if P[m][j,1]>bi: bi=P[m][j,1]; best=P[m][j,0]
     return nrep,best
-nullc=np.array([sum((len(peaks[k][inj]) and (np.abs(peaks[k][inj][:,0]-c)<=TIGHT).any()) for inj in range(N) for c in RC[inj])/(N*NRAND) for k in range(n)])
+# INTENSITY-AWARE NULL: a random-RT peak only counts if it's >= 0.5x the compound's own apex.
+# (presence-based null wrongly rejected the most abundant compounds -- fatty acids whose m/z
+# has small peaks everywhere; a 10^9.6 palmitate apex is rare at random RTs and clears easily.)
+_gstr=np.zeros(n)
+for k in range(n):
+    for inj in range(N):
+        P=peaks[k][inj]
+        if len(P): _gstr[k]=max(_gstr[k],P[:,1].max())
+def _nullc(intensity_aware):
+    out=np.zeros(n)
+    for k in range(n):
+        thr=0.5*_gstr[k] if intensity_aware else 0.0; hit=0; tot=0
+        for inj in range(N):
+            P=peaks[k][inj]; cs=RC[inj]
+            for c in cs:
+                tot+=1
+                if len(P):
+                    m=np.abs(P[:,0]-c)<=TIGHT
+                    if m.any() and (P[m,1].max()>=thr if intensity_aware else True): hit+=1
+        out[k]=hit/max(tot,1)
+    return out
+nullc=_nullc(True)
 withdesc=[k for k in range(n) if comp[k]["desc"] is not None]
 DX=np.array([comp[k]["desc"] for k in withdesc])   # descriptor matrix for predictable compounds
 # seed kit
@@ -633,3 +654,23 @@ fpmz=np.array([MZc[max(cl,key=lambda k:strength[k])] for cl in fp_cls]);
 fnmz=np.array([MZc[k] for k in fn_reps.values()])
 for lo,hi in [(0,150),(150,250),(250,400),(400,600),(600,2000)]:
     print(f"  m/z [{lo},{hi}): FP {int(((fpmz>=lo)&(fpmz<hi)).sum())}  FN {int(((fnmz>=lo)&(fnmz<hi)).sum())}")
+
+# ===== CROSS-PLATFORM CHECK: are neg 'FP's actually MAF compounds annotated on another platform? =====
+full_maf_ik=set()
+for r in csv.DictReader(open(GT)):
+    if r.get("unannotatable","")=="true": continue
+    _ik=(r.get("inchikey") or "").strip()[:14]
+    if len(_ik)>=14: full_maf_ik.add(_ik)
+neg_maf_ik=set(comp[k]["ik"] for k in range(n) if inmaf[k] and comp[k]["ik"])
+crossplat=[]; truenovel=0
+for cl in fp_cls:
+    k=max(cl,key=lambda k:strength[k]); ik=comp[k]["ik"]
+    if len(ik)>=14 and ik in full_maf_ik and ik not in neg_maf_ik:
+        crossplat.append((comp[k]["name"], ent[k] if not np.isnan(ent[k]) else -1))
+    else: truenovel+=1
+nTP=sum(any(inmaf[k] for k in cl) for cl in clsB); ncl=len(clsB)
+print(f"\n===== CROSS-PLATFORM FP ANALYSIS (best config) =====")
+print(f"FP clusters: {len(fp_cls)}  -> cross-platform-real (in MAF on ANOTHER platform): {len(crossplat)}   true novel/noise: {truenovel}")
+print(f"  neg-only precision           : {nTP}/{ncl} = {nTP/ncl:.3f}")
+print(f"  cross-platform-corrected prec: {nTP+len(crossplat)}/{ncl} = {(nTP+len(crossplat))/ncl:.3f}")
+print("  examples (name, MS2ent): "+", ".join(f"{nm}({e:.2f})" if e>=0 else nm for nm,e in sorted(crossplat,key=lambda x:-x[1])[:12]))
