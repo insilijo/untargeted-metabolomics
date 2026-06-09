@@ -1,0 +1,9 @@
+DD with reference spectrum: 415  MAF: 386
+observed DDA MS2: 6885
+
+CORRECT matchms ModifiedCosine library search (vs MAF):
+                   criterion  annot  recall  precision
+                 cosine>=0.5     81   0.176      0.840
+                 cosine>=0.6     76   0.166      0.842
+                 cosine>=0.7     67   0.145      0.836
+ GNPS-standard (>=0.7,>=6pk)     32   0.078      0.938
