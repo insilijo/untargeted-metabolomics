@@ -115,6 +115,20 @@ for k in order:
     if not placed: cl.append([k])
 tp=sum(any(inmaf[k] for k in c) for c in cl); cov=len(set(cik[k] for c in cl for k in c if inmaf[k]))
 sizes=[len(c) for c in cl]
+# identity (substitution-only) precision: FP cluster counts only if a DIFFERENT MAF compound owns the peak
+mafk=[k for k in range(n) if inmaf[k]]; predk=np.array([float(inv_pred(k)) for k in range(n)]) if False else None
+correct=0; subst=0; novel=0
+for c in cl:
+    if any(inmaf[k] for k in c): correct+=1; continue
+    kk=max(c,key=lambda k:0); mz=MZc[kk]; ap=apex[kk]
+    if any(abs(MZc[j]-mz)<=mz*ISOBAR_PPM*1e-6 and abs(apex[j]-ap)<=TIGHT for j in mafk if not np.isnan(apex[j])): subst+=1
+    else: novel+=1
+# TP-cluster ambiguity: of correct calls, how many are a SINGLE compound vs multi-candidate
+tpsizes=[len(c) for c in cl if any(inmaf[k] for k in c)]
+clean1=sum(1 for x in tpsizes if x==1)
 print(f"  admitted {int(admitted.sum())}  clusters {len(cl)}")
-print(f"  RECALL {cov/nmaf:.3f}  closed-world PRECISION {tp/max(len(cl),1):.3f}")
-print(f"  cluster size: median {int(np.median(sizes))} mean {np.mean(sizes):.2f} max {max(sizes)}  (specificity: bigger=more ambiguous)")
+print(f"  RECALL {cov/nmaf:.3f}")
+print(f"  closed-world PRECISION : {tp/max(len(cl),1):.3f}")
+print(f"  IDENTITY PRECISION (substitution-only): {correct/max(correct+subst,1):.3f}  (correct {correct}, subst {subst}, novel-excluded {novel})")
+print(f"  SPECIFICITY of correct calls: {clean1}/{len(tpsizes)} are SINGLE-compound; TP-cluster size median {int(np.median(tpsizes))} mean {np.mean(tpsizes):.2f} max {max(tpsizes)}")
+print(f"  all-cluster size: median {int(np.median(sizes))} mean {np.mean(sizes):.2f} max {max(sizes)}")
