@@ -1,0 +1,10 @@
+## GAP size=8
+KIT_SIZE=8 KIT_SEED=0 K=4 (kit used 8)
+  1      217   0.487      0.733        0.648
+## GAP size=10
+KIT_SIZE=10 KIT_SEED=0 K=4 (kit used 10)
+  1      205   0.479      0.732        0.684
+## GAP size=14
+KIT_SIZE=14 KIT_SEED=0 K=4 (kit used 14)
+  1      227   0.523      0.731        0.715
+GAP-DONE

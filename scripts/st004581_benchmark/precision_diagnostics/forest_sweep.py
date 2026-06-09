@@ -49,8 +49,24 @@ import os as _os
 KIT_MODE=_os.environ.get("KIT_MODE","random")
 if KIT_SIZE and KIT_SIZE<len(kit):
     if KIT_MODE=="spread":
-        ks=sorted(range(len(kit)),key=lambda i:kit[i][1])  # sort by observed RT (sec)
+        ks=sorted(range(len(kit)),key=lambda i:kit[i][1])
         idx=sorted(set(ks[int(round(j*(len(ks)-1)/(KIT_SIZE-1)))] for j in range(KIT_SIZE)))
+    elif KIT_MODE=="gap":
+        # greedy: add the anchor the CURRENT ladder predicts worst (fills high-curvature regions)
+        ri=[kit[i][2] for i in range(len(kit))]; sec=[kit[i][1] for i in range(len(kit))]
+        o=sorted(range(len(kit)),key=lambda i:ri[i]); chosen=[o[0],o[-1]]
+        def _lad(ch):
+            cr=sorted(set(ch),key=lambda i:ri[i]); xs=[]; ys=[]
+            for i in cr:
+                if not xs or ri[i]>xs[-1]+1e-6: xs.append(ri[i]); ys.append(sec[i])
+            return (PchipInterpolator(np.array(xs),np.array(ys),extrapolate=True) if len(xs)>=2 else None)
+        while len(set(chosen))<KIT_SIZE:
+            L=_lad(chosen)
+            if L is None: break
+            cand=[(abs(float(L(ri[i]))-sec[i]),i) for i in range(len(kit)) if i not in chosen]
+            if not cand: break
+            chosen.append(max(cand)[1])
+        idx=sorted(set(chosen))
     else:
         idx=rng.choice(len(kit),KIT_SIZE,replace=False)
     kit=[kit[i] for i in idx]
