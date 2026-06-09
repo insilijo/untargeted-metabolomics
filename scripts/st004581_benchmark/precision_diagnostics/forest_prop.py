@@ -698,3 +698,35 @@ print(f"  novel (peak no MAF compound owns -> EXCLUDED, not penalized): {novel}"
 print(f"  >>> neg-only closed-world precision : {sum(any(inmaf[k] for k in cl) for cl in clsB)}/{len(clsB)} = {sum(any(inmaf[k] for k in cl) for cl in clsB)/len(clsB):.3f}")
 print(f"  >>> cross-platform-credited prec   : {correct}/{len(clsB)} = {correct/len(clsB):.3f}")
 print(f"  >>> SUBSTITUTION-ONLY identity prec: {correct}/{correct+subst} = {correct/(correct+subst):.3f} <<<")
+
+# ===== CARDINALITY-AWARE ISOBAR RECOVERY (user: isomers listed at different RTs -> use cardinality) =====
+from scipy.optimize import linear_sum_assignment
+order=np.argsort(MZc); groups=[]; cur=[int(order[0])]
+for k in order[1:]:
+    k=int(k)
+    if abs(MZc[k]-MZc[cur[-1]])<=MZc[k]*ISOBAR_PPM*1e-6: cur.append(k)
+    else: groups.append(cur); cur=[k]
+groups.append(cur)
+recovered=set(mid[k] for cl in clsB for k in cl if inmaf[k])
+card_rec=set()
+for g in groups:
+    maf_m=[k for k in g if inmaf[k]]
+    if not maf_m: continue
+    allpk=[(rt_,it) for k in g for inj in range(N) for rt_,it in peaks[k][inj] if it>2*FLOOR]
+    if not allpk: continue
+    rtb=defaultdict(list)
+    for rt_,it in allpk: rtb[int(rt_//(2*TIGHT))].append((rt_,it))
+    distinct=[(np.median([r for r,_ in v]),max(i for _,i in v)) for b,v in rtb.items() if len(v)>=MINREP]
+    if not distinct: continue
+    prt=np.array([comp[k]["pred"] for k in maf_m]); pk_rt=np.array([d[0] for d in distinct])
+    cost=np.abs(prt[:,None]-pk_rt[None,:])
+    ri,ci=linear_sum_assignment(cost)
+    for a,b in zip(ri,ci):
+        if cost[a,b]<=2*TIGHT: card_rec.add(mid[maf_m[a]])
+newly=card_rec-recovered
+# how many of the newly-recovered are in multi-compound (cardinality>1) isobaric groups?
+print(f"\n===== CARDINALITY-AWARE ISOBAR RECOVERY =====")
+print(f"  isobaric m/z groups with >=2 MAF compounds: {sum(1 for g in groups if sum(inmaf[k] for k in g)>=2)}")
+print(f"  MAF recovered (best config): {len(recovered)}  recall {len(recovered)/nmaf:.3f}")
+print(f"  + cardinality-assigned new : {len(newly)}")
+print(f"  >>> recall {len(recovered)/nmaf:.3f} -> {len(recovered|card_rec)/nmaf:.3f} <<<")
