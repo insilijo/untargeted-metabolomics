@@ -1,0 +1,17 @@
+MAF neg compounds with a detectable peak (>15000): 357/359
+>>> Spearman(our observed apex sec, MAF reported rt) = 0.809  (p=4.2e-84) <<<
+    high (~>0.9) => observed peaks track the MAF's ground-truth elution order = recoveries are real
+
+examples (MAF_rt, our_apex_sec) sorted by MAF_rt:
+        530       34
+       1282      334
+       1570       97
+       1808      153
+       2184       83
+       2665      157
+       3474      211
+       4215      226
+       4745      279
+       5020      305
+       5261      309
+       5600      336
