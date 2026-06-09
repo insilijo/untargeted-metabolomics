@@ -45,8 +45,15 @@ for r in csv.DictReader(open(KIT)):
     except: sec=ri=None
     if d is not None and sec and ri: kit.append((d,sec,ri))
 rng=np.random.RandomState(KIT_SEED)
+import os as _os
+KIT_MODE=_os.environ.get("KIT_MODE","random")
 if KIT_SIZE and KIT_SIZE<len(kit):
-    idx=rng.choice(len(kit),KIT_SIZE,replace=False); kit=[kit[i] for i in idx]
+    if KIT_MODE=="spread":
+        ks=sorted(range(len(kit)),key=lambda i:kit[i][1])  # sort by observed RT (sec)
+        idx=sorted(set(ks[int(round(j*(len(ks)-1)/(KIT_SIZE-1)))] for j in range(KIT_SIZE)))
+    else:
+        idx=rng.choice(len(kit),KIT_SIZE,replace=False)
+    kit=[kit[i] for i in idx]
 # ladder from kit (RI->sec)
 agg=defaultdict(list)
 for d,sec,ri in kit: agg[round(ri,1)].append(sec)
