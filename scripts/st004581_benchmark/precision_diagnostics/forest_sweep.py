@@ -43,7 +43,7 @@ for r in csv.DictReader(open(KIT)):
     s=r.get("smiles"); d=_descriptors(s) if s else None
     try: sec=float(r["observed_rt_sec"]); ri=float(r["ri"])
     except: sec=ri=None
-    if d is not None and sec and ri: kit.append((d,sec,ri))
+    if d is not None and sec and ri: kit.append((d,sec,ri,s))
 rng=np.random.RandomState(KIT_SEED)
 import os as _os
 KIT_MODE=_os.environ.get("KIT_MODE","random")
@@ -67,15 +67,59 @@ if KIT_SIZE and KIT_SIZE<len(kit):
             if not cand: break
             chosen.append(max(cand)[1])
         idx=sorted(set(chosen))
+    elif KIT_MODE=='chemfn':
+        from rdkit import Chem
+        from rdkit.Chem import AllChem, DataStructs
+        def _fp(sm):
+            m=Chem.MolFromSmiles(sm) if sm else None
+            return AllChem.GetMorganFingerprintAsBitVect(m,2,2048) if m else None
+        kfps=[_fp(k[3]) for k in kit]
+        maffps=[]
+        for _c in lib0.get(PLAT,[]):
+            if M._norm(_c['name']) in maf:
+                _f=_fp(smi.get(_c['ik14']))
+                if _f is not None: maffps.append(_f)
+        def _d(a,b): return 1.0-DataStructs.TanimotoSimilarity(a,b)
+        E=min(KIT_SIZE,10); chosen=[0]
+        while len(chosen)<E:
+            best=-1.0; bi=None
+            for i in range(len(kit)):
+                if i in chosen or kfps[i] is None: continue
+                md=min(_d(kfps[i],kfps[c]) for c in chosen)
+                if md>best: best=md; bi=i
+            chosen.append(bi)
+        mind=[min(_d(mf,kfps[c]) for c in chosen) for mf in maffps]
+        while len(chosen)<KIT_SIZE:
+            best=-1.0; bi=None
+            for i in range(len(kit)):
+                if i in chosen or kfps[i] is None: continue
+                gain=sum(max(0.0,mind[m]-_d(maffps[m],kfps[i])) for m in range(len(maffps)))
+                if gain>best: best=gain; bi=i
+            chosen.append(bi)
+            mind=[min(mind[m],_d(maffps[m],kfps[bi])) for m in range(len(maffps))]
+        idx=sorted(set(chosen))
+    elif KIT_MODE=='chem':
+        from rdkit import Chem
+        from rdkit.Chem import AllChem, DataStructs
+        fps=[AllChem.GetMorganFingerprintAsBitVect(Chem.MolFromSmiles(k[3]),2,2048) for k in kit]
+        chosen=[0]
+        while len(chosen)<KIT_SIZE:
+            best=-1.0; bi=None
+            for i in range(len(kit)):
+                if i in chosen: continue
+                md=min(1.0-DataStructs.TanimotoSimilarity(fps[i],fps[c]) for c in chosen)
+                if md>best: best=md; bi=i
+            chosen.append(bi)
+        idx=sorted(set(chosen))
     else:
         idx=rng.choice(len(kit),KIT_SIZE,replace=False)
     kit=[kit[i] for i in idx]
 # ladder from kit (RI->sec)
 agg=defaultdict(list)
-for d,sec,ri in kit: agg[round(ri,1)].append(sec)
+for d,sec,ri,_sm in kit: agg[round(ri,1)].append(sec)
 xs=np.array(sorted(agg)); ys=np.array([np.median(agg[x]) for x in xs])
 inv=PchipInterpolator(xs,ys,extrapolate=True) if len(xs)>=3 else (lambda r: np.full_like(np.asarray(r,float),np.median(ys)))
-kitX=np.array([d for d,_,_ in kit]); kitY=np.array([s for _,s,_ in kit])
+kitX=np.array([d for d,_,_,_ in kit]); kitY=np.array([sec for _,sec,_,_ in kit])
 comp=[]
 for c in lib0.get(PLAT,[]):
     nm=M._norm(c["name"])
