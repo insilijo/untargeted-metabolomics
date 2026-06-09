@@ -1,7 +1,0 @@
-LIB=dd  candidates=1718  MAF in candidates=391/386  (feature-detectable subset)
-  admitted 418  clusters 261
-  RECALL 0.510
-  closed-world PRECISION : 0.617
-  IDENTITY PRECISION (substitution-only): 1.000  (correct 161, subst 0, novel-excluded 100)
-  SPECIFICITY of correct calls: 86/161 are SINGLE-compound; TP-cluster size median 1 mean 1.84 max 7
-  all-cluster size: median 1 mean 1.60 max 7
