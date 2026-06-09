@@ -148,7 +148,7 @@ for k in order[1:]:
     if abs(MZc[k]-MZc[cur[-1]])<=MZc[k]*ISOBAR_PPM*1e-6: cur.append(k)
     else: groups.append(cur); cur=[k]
 groups.append(cur)
-def card_recall(base_recovered):
+def card_recall_set(base_recovered):
     cr=set(base_recovered)
     for g in groups:
         mm=[k for k in g if inmaf[k]]
@@ -163,7 +163,8 @@ def card_recall(base_recovered):
         cost=np.abs(prt[:,None]-pkrt[None,:]); ri,ci=linear_sum_assignment(cost)
         for a,b in zip(ri,ci):
             if cost[a,b]<=2*TIGHT: cr.add(mid[mm[a]])
-    return len(cr)/nmaf
+    return cr
+def card_recall(b): return len(card_recall_set(b))/nmaf
 print(f"KIT_SIZE={KIT_SIZE if KIT_SIZE else len(kit)} KIT_SEED={KIT_SEED} K={K} (kit used {len(kit)})")
 print(f"{'M':>3}{'clusters':>9}{'recall':>8}{'precision':>11}{'+card_recall':>13}")
 for Mv in range(1,K+1):
@@ -174,3 +175,14 @@ for Mv in range(1,K+1):
     corr=sum(any(inmaf[k] or comp[k]["ik"] in full_maf_ik for k in cl) for cl in cls)  # xplat
     cr=card_recall(cov)
     print(f"{Mv:>3}{len(cls):>9}{len(cov)/nmaf:>8.3f}{corr/len(cls):>11.3f}{cr:>13.3f}")
+
+import os
+if os.environ.get('DUMP'):
+    cls1=cluster(votes>=1); cov1=set(mid[k] for cl in cls1 for k in cl if inmaf[k])
+    crset=card_recall_set(cov1); seen=set()
+    f=open(os.environ['DUMP'],'w'); f.write('mid\tmz\tpred\tlogI\tat_pred\thas_peak\trecovered\n')
+    for k in range(n):
+        if inmaf[k] and mid[k] not in seen:
+            seen.add(mid[k]); nr,_=rep_apex(k,comp[k]['pred'],TIGHT)
+            f.write('%d\t%.4f\t%.0f\t%.1f\t%d\t%d\t%d\n'%(mid[k],MZc[k],comp[k]['pred'],np.log10(strength[k]+1),int(nr>=MINREP),int(strength[k]>2*FLOOR),int(mid[k] in crset)))
+    f.close()
