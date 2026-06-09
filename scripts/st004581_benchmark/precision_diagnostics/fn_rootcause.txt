@@ -1,0 +1,29 @@
+EIC done 0s
+nullc done
+chain 0 done 2s admitted=295
+chain 1 done 1s admitted=338
+chain 2 done 2s admitted=389
+chain 3 done 1s admitted=414
+KIT_SIZE=30 KIT_SEED=0 K=4 (kit used 30)
+  M clusters  recall  precision +card_recall
+  1      237   0.531      0.705        0.728
+  2      171   0.422      0.784        0.687
+  3      130   0.326      0.800        0.655
+  4       86   0.218      0.802        0.627
+
+===== DEFINITIVE FN ROOT-CAUSE (kit=30, recall=0.728, 73 FNs) =====
+   26 (0.36)  NO PEAK at m/z (acquisition floor / absent)
+    9 (0.12)  RT-MISLOCATED (peak elsewhere, prediction wrong)
+    6 (0.08)  RT-MISLOCATED (peak elsewhere, prediction wrong) [no-SMILES]
+    5 (0.07)  RT-MISLOCATED (peak elsewhere, prediction wrong) [no-SMILES] [iso2]
+    5 (0.07)  NO PEAK at m/z (acquisition floor / absent) [no-SMILES]
+    4 (0.05)  RT-MISLOCATED (peak elsewhere, prediction wrong) [iso2]
+    4 (0.05)  peak AT predicted-RT, not admitted (gate / cardinality miss) [iso2]
+    4 (0.05)  RT-MISLOCATED (peak elsewhere, prediction wrong) [iso3]
+    3 (0.04)  peak AT predicted-RT, not admitted (gate / cardinality miss)
+    2 (0.03)  RT-MISLOCATED (peak elsewhere, prediction wrong) [no-SMILES] [iso3]
+    2 (0.03)  peak AT predicted-RT, not admitted (gate / cardinality miss) [iso3]
+    1 (0.01)  RT-MISLOCATED (peak elsewhere, prediction wrong) [no-SMILES] [iso4]
+    1 (0.01)  RT-MISLOCATED (peak elsewhere, prediction wrong) [no-SMILES] [iso5]
+    1 (0.01)  RT-MISLOCATED (peak elsewhere, prediction wrong) [iso4]
+  --- rollup: no-peak 31 (0.42) | mislocated 33 (0.45) | admission-residual 9 (0.12) | (no-SMILES cross-cut 20)

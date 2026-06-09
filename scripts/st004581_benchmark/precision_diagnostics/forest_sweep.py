@@ -254,3 +254,32 @@ if os.environ.get('DUMP'):
             seen.add(mid[k]); nr,_=rep_apex(k,comp[k]['pred'],TIGHT)
             f.write('%d\t%.4f\t%.0f\t%.1f\t%d\t%d\t%d\n'%(mid[k],MZc[k],comp[k]['pred'],np.log10(strength[k]+1),int(nr>=MINREP),int(strength[k]>2*FLOOR),int(mid[k] in crset)))
     f.close()
+
+import os as _orc
+if _orc.environ.get("ROOTCAUSE"):
+    from collections import Counter as _C
+    cls1=cluster(votes>=1); cov=set(mid[k] for cl in cls1 for k in cl if inmaf[k]); crset=card_recall_set(cov)
+    reps={}
+    for k in range(n):
+        if inmaf[k] and (mid[k] not in reps or strength[k]>strength[reps[mid[k]]]): reps[mid[k]]=k
+    fn=[m for m in reps if m not in crset]
+    cats=_C(); ex=_C()
+    for m in fn:
+        k=reps[m]; sm=comp[k]["desc"] is not None
+        nr,_=rep_apex(k,comp[k]["pred"],TIGHT); anyp=strength[k]>2*FLOOR
+        iso=sum(1 for j in range(n) if inmaf[j] and abs(MZc[j]-MZc[k])<=MZc[k]*ISOBAR_PPM*1e-6)
+        if not anyp:
+            cats["NO PEAK at m/z (acquisition floor / absent)"+("" if sm else " [no-SMILES]")]+=1
+        elif nr>=MINREP:
+            cats["peak AT predicted-RT, not admitted (gate / cardinality miss)"+(" [iso%d]"%iso if iso>=2 else "")]+=1
+        else:
+            cats["RT-MISLOCATED (peak elsewhere, prediction wrong)"+("" if sm else " [no-SMILES]")+(" [iso%d]"%iso if iso>=2 else "")]+=1
+    tot=sum(cats.values())
+    print("\n===== DEFINITIVE FN ROOT-CAUSE (kit=%d, recall=%.3f, %d FNs) ====="%(len(kit),len(crset)/nmaf,tot))
+    for c,v in cats.most_common(): print("  %3d (%.2f)  %s"%(v,v/tot,c))
+    # rollups
+    nopk=sum(v for c,v in cats.items() if "NO PEAK" in c)
+    mis=sum(v for c,v in cats.items() if "MISLOCATED" in c)
+    adm=sum(v for c,v in cats.items() if "AT predicted" in c)
+    nosm=sum(v for c,v in cats.items() if "no-SMILES" in c)
+    print("  --- rollup: no-peak %d (%.2f) | mislocated %d (%.2f) | admission-residual %d (%.2f) | (no-SMILES cross-cut %d)"%(nopk,nopk/tot,mis,mis/tot,adm,adm/tot,nosm))
