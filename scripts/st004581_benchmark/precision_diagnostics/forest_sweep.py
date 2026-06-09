@@ -227,10 +227,11 @@ def card_recall_set(base_recovered):
         for rt_,it in allpk: rtb[int(rt_//(2*TIGHT))].append((rt_,it))
         dist=[(np.median([r for r,_ in v]),max(i for _,i in v)) for b,v in rtb.items() if len(v)>=MINREP]
         if not dist: continue
-        prt=np.array([comp[k]["pred"] for k in mm]); pkrt=np.array([d[0] for d in dist])
+        gg=list(g)  # ALL DD compounds at this m/z (blind candidate set, not just MAF)
+        prt=np.array([comp[k]["pred"] for k in gg]); pkrt=np.array([d[0] for d in dist])
         cost=np.abs(prt[:,None]-pkrt[None,:]); ri,ci=linear_sum_assignment(cost)
         for a,b in zip(ri,ci):
-            if cost[a,b]<=2*TIGHT: cr.add(mid[mm[a]])
+            if cost[a,b]<=2*TIGHT and inmaf[gg[a]]: cr.add(mid[gg[a]])
     return cr
 def card_recall(b): return len(card_recall_set(b))/nmaf
 print(f"KIT_SIZE={KIT_SIZE if KIT_SIZE else len(kit)} KIT_SEED={KIT_SEED} K={K} (kit used {len(kit)})")
