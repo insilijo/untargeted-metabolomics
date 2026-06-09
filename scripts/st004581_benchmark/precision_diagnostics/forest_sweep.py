@@ -19,7 +19,7 @@ PLAT="lc/ms neg"; DD="/root/SQuID-INC/data/external/metabolon_data_dictionary_PM
 GT="/root/SQuID-INC/data/st004581/annotations_repaired.csv"; FEAT="/tmp/feat_colu.parquet"
 KIT="/root/untargeted-metabolomics/data/anchor_panels/anchors_lc_ms_neg.csv"; SMI="/tmp/dd_pubchem_smiles.csv"
 MZML=sorted(glob.glob("/root/SQuID-INC/data/st004581/mzml/Method3_*COLU*.mzML"))[:8]
-MZ_PPM=7.0; FLOOR=50000.0; TIGHT=6.0; MINREP=2; NRAND=60; FDR_ADMIT=0.05; ISOBAR_PPM=10.0; NFEAT=15; ik14=lambda s:(s or "")[:14]
+import os as _osf; MZ_PPM=7.0; FLOOR=float(_osf.environ.get('FLOOR','50000')); TIGHT=6.0; MINREP=2; NRAND=60; FDR_ADMIT=0.05; ISOBAR_PPM=10.0; NFEAT=15; ik14=lambda s:(s or "")[:14]
 maf=set(); maf_ik=set(); name2id={}; ik2id={}; _eid=0; full_maf_ik=set()
 for r in csv.DictReader(open(GT)):
     if r.get("unannotatable","")=="true": continue
@@ -283,3 +283,14 @@ if _orc.environ.get("ROOTCAUSE"):
     adm=sum(v for c,v in cats.items() if "AT predicted" in c)
     nosm=sum(v for c,v in cats.items() if "no-SMILES" in c)
     print("  --- rollup: no-peak %d (%.2f) | mislocated %d (%.2f) | admission-residual %d (%.2f) | (no-SMILES cross-cut %d)"%(nopk,nopk/tot,mis,mis/tot,adm,adm/tot,nosm))
+
+if _osf.environ.get("IDPREC"):
+    cls1=cluster(votes>=1); cov=set(mid[k] for cl in cls1 for k in cl if inmaf[k]); rec=len(card_recall_set(cov))/nmaf
+    negmaf=[k for k in range(n) if inmaf[k]]
+    correct=0; subst=0; novel=0
+    for cl in cls1:
+        if any(inmaf[k] or comp[k]["ik"] in full_maf_ik for k in cl): correct+=1; continue
+        kk=max(cl,key=lambda k:strength[k]); ap=gapex[kk]; mz=MZc[kk]
+        if any(abs(MZc[j]-mz)<=mz*ISOBAR_PPM*1e-6 and abs(comp[j]["pred"]-ap)<=TIGHT for j in negmaf): subst+=1
+        else: novel+=1
+    print("FLOOR=%d  recall(card)=%.3f  closed-world-prec=%.3f  IDENTITY-prec=%.3f  (correct=%d subst=%d novel-excluded=%d)"%(FLOOR,rec,correct/max(len(cls1),1),correct/max(correct+subst,1),correct,subst,novel))
