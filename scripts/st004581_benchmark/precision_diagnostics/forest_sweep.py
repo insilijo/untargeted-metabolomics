@@ -136,7 +136,8 @@ def run_chain(cs):
     r=np.random.RandomState(cs); fsub=np.sort(r.choice(DDIM,NFEAT,replace=False))
     bidx=r.choice(len(kitX),len(kitX),replace=True)
     Xtr=list(kitX[bidx][:,fsub]); ytr=list(kitY[bidx]); admitted=np.zeros(n,bool)
-    for rd in range(10):
+    import os as _o2
+    for rd in range(int(_o2.environ.get("ROUNDS","10"))):
         mdl=HistGradientBoostingRegressor(max_iter=250,max_depth=4,learning_rate=0.07,min_samples_leaf=4).fit(np.array(Xtr),np.array(ytr))
         pr=mdl.predict(DX[:,fsub]); cand=[]
         for ii,k in enumerate(withdesc):
