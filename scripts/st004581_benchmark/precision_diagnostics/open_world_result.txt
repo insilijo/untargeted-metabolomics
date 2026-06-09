@@ -1,0 +1,5 @@
+Open-world: sparse-prop vs DD(1718) vs 172k ZINC universe (feature-table matching, same for both):
+  DD:       candidates 1718,  recall 0.510, closed-world prec 0.617, cluster size med1/mean1.6/max7
+  UNIVERSE: candidates 68609 (feature-detectable of 172k), recall 0.528, prec 0.044, cluster size med3/mean7.2/max306
+RECALL ROBUST (0.51->0.53, scales to open-world). SPECIFICITY COLLAPSES (prec 0.62->0.044, 7 candidates/peak).
+RT+mz insufficient in full chemical space -> needs MS2 + biochemistry-presence-prior + tighter RT (the rest of SQuID-INC architecture). Empirical proof of the unified MS2 story.
