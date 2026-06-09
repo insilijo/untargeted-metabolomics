@@ -20,7 +20,7 @@ GT="/root/SQuID-INC/data/st004581/annotations_repaired.csv"; FEAT="/tmp/feat_col
 KIT="/root/untargeted-metabolomics/data/anchor_panels/anchors_lc_ms_neg.csv"; SMI="/tmp/dd_pubchem_smiles.csv"
 MZML=sorted(glob.glob("/root/SQuID-INC/data/st004581/mzml/Method3_*COLU*.mzML"))[:8]
 import os as _osf; MZ_PPM=7.0; FLOOR=float(_osf.environ.get('FLOOR','50000')); TIGHT=6.0; MINREP=2; NRAND=60; FDR_ADMIT=0.05; ISOBAR_PPM=10.0; NFEAT=15; ik14=lambda s:(s or "")[:14]
-maf=set(); maf_ik=set(); name2id={}; ik2id={}; _eid=0; full_maf_ik=set()
+maf=set(); maf_ik=set(); name2id={}; ik2id={}; _eid=0; full_maf_ik=set(); maf_rt={}
 for r in csv.DictReader(open(GT)):
     if r.get("unannotatable","")=="true": continue
     _ik=(r.get("inchikey") or "").strip()[:14]
@@ -33,6 +33,8 @@ for r in csv.DictReader(open(GT)):
         else: eid=_eid; _eid+=1
         name2id.setdefault(nm,eid)
         if len(_ik)>=14: maf_ik.add(_ik); ik2id.setdefault(_ik,eid)
+        try: maf_rt[eid]=float(r.get('rt') or r.get('observed_rt') or 'nan')
+        except: pass
 NMAF=_eid
 df=pd.read_parquet(FEAT); df["platform"]=df.source_file.str.split("_").str[0].map(M.DEFAULT_PREFIX_MAP)
 df=df.dropna(subset=["platform"])
@@ -176,6 +178,45 @@ def rep_apex(k,pred,W):
             if P[m][j,1]>bi: bi=P[m][j,1]; best=P[m][j,0]
     return nrep,best
 withdesc=[k for k in range(n) if comp[k]["desc"] is not None]; DX=np.array([comp[k]["desc"] for k in withdesc])
+
+import os as _om2
+MS2GATE=_om2.environ.get("MS2GATE")  # tau threshold or None
+ms2ent=np.full(n,np.nan)
+if MS2GATE:
+    import json as _json
+    from squid_inc.features.ms2_similarity import entropy_similarity as _ent
+    _refL={}
+    for _fn in ["ms2_library_massbank_full_neg.json","ms2_library_mona_neg.json","ms2_library_gnps_neg.json"]:
+        try:
+            _d=_json.load(open("/mnt/volume-hel1-1/data/processed/"+_fn))
+            for _k,_v in _d.items():
+                _ik=_k[:14]
+                if any(comp[i]["ik"]==_ik for i in range(0)): pass
+        except Exception: pass
+    _our=set(comp[i]["ik"] for i in range(n) if comp[i]["ik"])
+    _ref={}
+    for _fn in ["ms2_library_massbank_full_neg.json","ms2_library_mona_neg.json","ms2_library_gnps_neg.json"]:
+        _d=_json.load(open("/mnt/volume-hel1-1/data/processed/"+_fn))
+        for _k,_v in _d.items():
+            _ik=_k[:14]
+            if _ik in _our: _ref.setdefault(_ik,[]).append([(float(a),float(b)) for a,b in _v])
+    _ms2=[]
+    for _mp in MZML:
+        for _sp in pymzml.run.Reader(_mp):
+            if _sp.ms_level!=2: continue
+            try: _p=_sp.selected_precursors[0]["mz"]
+            except Exception: continue
+            _mz=np.asarray(_sp.mz); _ii=np.asarray(_sp.i)
+            if len(_mz): _ms2.append((float(_p),[(float(a),float(b)) for a,b in zip(_mz.tolist(),_ii.tolist())]))
+    _pm=np.array([x[0] for x in _ms2])
+    for k in range(n):
+        ik=comp[k]["ik"]
+        if ik not in _ref: continue
+        t=MZc[k]*15e-6; cand=[x for x in _ms2 if abs(x[0]-MZc[k])<=t]
+        if not cand: continue
+        ms2ent[k]=max((_ent(pk,r,mz_tol=0.02) for _,pk in cand for r in _ref[ik]),default=np.nan)
+    print("MS2GATE on: tau=%s, compounds with MS2 ref+obs: %d"%(MS2GATE,int((~np.isnan(ms2ent)).sum())),flush=True)
+
 def run_chain(cs):
     r=np.random.RandomState(cs); fsub=np.sort(r.choice(DDIM,NFEAT,replace=False))
     bidx=r.choice(len(kitX),len(kitX),replace=True)
@@ -196,7 +237,10 @@ def run_chain(cs):
             if any(abs(MZc[k]-MZc[kk])<=MZc[k]*ISOBAR_PPM*1e-6 and abs(ap-aa)<=TIGHT for kk,aa in taken): continue
             taken.append((k,ap)); new.append((k,ap))
         if not new: break
-        for k,ap in new: admitted[k]=True; Xtr.append(comp[k]["desc"][fsub]); ytr.append(ap)
+        for k,ap in new:
+            admitted[k]=True
+            if MS2GATE and (not np.isnan(ms2ent[k])) and ms2ent[k]<float(MS2GATE): continue  # MS2-refuted: admit but DON'T train on it
+            Xtr.append(comp[k]["desc"][fsub]); ytr.append(ap)
     return admitted
 votes=np.zeros(n)
 for c in range(K):
@@ -295,3 +339,28 @@ if _osf.environ.get("IDPREC"):
         if any(abs(MZc[j]-mz)<=mz*ISOBAR_PPM*1e-6 and abs(comp[j]["pred"]-ap)<=TIGHT for j in negmaf): subst+=1
         else: novel+=1
     print("FLOOR=%d  recall(card)=%.3f  closed-world-prec=%.3f  IDENTITY-prec=%.3f  (correct=%d subst=%d novel-excluded=%d)"%(FLOOR,rec,correct/max(len(cls1),1),correct/max(correct+subst,1),correct,subst,novel))
+
+if _osf.environ.get("SENSE"):
+    from scipy.stats import spearmanr
+    cls1=cluster(votes>=1); cov=set(mid[k] for cl in cls1 for k in cl if inmaf[k]); crset=card_recall_set(cov)
+    reps={}
+    for k in range(n):
+        if inmaf[k] and (mid[k] not in reps or strength[k]>strength[reps[mid[k]]]): reps[mid[k]]=k
+    ours=[]; mafr=[]; preds=[]
+    for m in crset:
+        if m in reps and m in maf_rt and not _math.isnan(maf_rt.get(m,float("nan"))) and not np.isnan(gapex[reps[m]]):
+            ours.append(float(gapex[reps[m]])); mafr.append(maf_rt[m]); preds.append(float(comp[reps[m]]["pred"]))
+    if len(ours)>5:
+        rho=spearmanr(ours,mafr)[0]; rho_pred=spearmanr(preds,mafr)[0]
+        print("SENSE-CHECK (recovered=%d):"%len(ours))
+        print("  Spearman(OUR observed peak-sec, MAF reported rt) = %.3f   <- recoveries real if high"%rho)
+        print("  Spearman(our PREDICTED sec, MAF reported rt)      = %.3f   (model vs ground-truth)"%rho_pred)
+        # examples sorted by MAF rt
+        idx=sorted(range(len(ours)),key=lambda i:mafr[i])
+        print("  examples (MAF_rt, our_peak_sec, our_pred_sec):")
+        for i in idx[::max(1,len(idx)//10)][:10]:
+            print("    %.1f  %.0f  %.0f"%(mafr[i],ours[i],preds[i]))
+        # FN side: do we miss across the whole rt range or specific regions?
+        fnrt=[maf_rt[m] for m in reps if m not in crset and m in maf_rt and not _math.isnan(maf_rt.get(m,float("nan")))]
+        import numpy as _np
+        print("  recovered MAF_rt: median %.0f range [%.0f,%.0f] | missed MAF_rt: n=%d median %.0f"%(_np.median(mafr),min(mafr),max(mafr),len(fnrt),_np.median(fnrt) if fnrt else -1))
