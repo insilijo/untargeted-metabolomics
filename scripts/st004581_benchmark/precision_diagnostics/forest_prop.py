@@ -730,3 +730,24 @@ print(f"  isobaric m/z groups with >=2 MAF compounds: {sum(1 for g in groups if 
 print(f"  MAF recovered (best config): {len(recovered)}  recall {len(recovered)/nmaf:.3f}")
 print(f"  + cardinality-assigned new : {len(newly)}")
 print(f"  >>> recall {len(recovered)/nmaf:.3f} -> {len(recovered|card_rec)/nmaf:.3f} <<<")
+
+# ===== CLASSIFY REMAINING FNs (after cardinality) -- is the rest anchors? =====
+still_fn=[m for m in set(int(x) for x in mid if x>=0) if m not in (recovered|card_rec)]
+reps={}
+for k in range(n):
+    if inmaf[k] and mid[k] in still_fn:
+        if mid[k] not in reps or strength[k]>strength[reps[mid[k]]]: reps[mid[k]]=k
+cats=defaultdict(int)
+for m,k in reps.items():
+    nr,ap=rep_apex(k,comp[k]["pred"],TIGHT); sm="" if comp[k]["desc"] is not None else " [no-SMILES]"
+    if _gstr[k]<=2*FLOOR: cats["faint / absent (acquisition wall)"]+=1
+    elif nr>=MINREP: cats["peak AT predRT, still rejected (gate/isobar residual)"+sm]+=1
+    else: cats["RT-MISLOCATED -> ANCHOR"+sm]+=1
+tot=sum(cats.values())
+print(f"\n===== REMAINING FN CLASSIFICATION (after intensity-null + cardinality), total {tot} =====")
+anch=0
+for c,v in sorted(cats.items(),key=lambda x:-x[1]):
+    print(f"  {v:>4} ({v/tot:.2f})  {c}")
+    if "ANCHOR" in c: anch+=v
+print(f"  --> ANCHOR-addressable (RT-mislocated): {anch}/{tot} = {anch/tot:.2f} of remaining FNs")
+print(f"  --> recall if all RT-mislocated recovered: {(len(recovered|card_rec)+anch)/nmaf:.3f}")
