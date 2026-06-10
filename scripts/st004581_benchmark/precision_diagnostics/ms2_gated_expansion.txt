@@ -1,0 +1,4 @@
+MS2-gated expansion training vs blind (full kit, FLOOR=15k, card-recall M=1):
+  blind:     recall 0.829 precision 0.630
+  MS2-gated: recall 0.832 precision 0.627  (203 compounds with MS2 ref+obs)
+WASH (+0.003) -- drift already low in DD (2 isobars + consensus/early-clip); MS2-anchor-confirmation redundant here, hypothesized to matter in open-world (9x competition).

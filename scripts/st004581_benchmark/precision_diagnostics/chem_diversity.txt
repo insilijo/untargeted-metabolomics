@@ -1,0 +1,13 @@
+## CHEM size=8
+KIT_SIZE=8 KIT_SEED=0 K=4 (kit used 8)
+  1      204   0.459      0.750        0.764
+## CHEM size=10
+KIT_SIZE=10 KIT_SEED=0 K=4 (kit used 10)
+  1      207   0.484      0.754        0.769
+## CHEM size=14
+KIT_SIZE=14 KIT_SEED=0 K=4 (kit used 14)
+  1      248   0.544      0.726        0.756
+## CHEM size=18
+KIT_SIZE=18 KIT_SEED=0 K=4 (kit used 18)
+  1      242   0.544      0.711        0.741
+CHEM-DONE

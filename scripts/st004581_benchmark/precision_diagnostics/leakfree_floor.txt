@@ -1,0 +1,4 @@
+FLOOR=50000  recall(card)=0.715  closed-world-prec=0.705  IDENTITY-prec=0.988  (correct=167 subst=2 novel-excluded=68)
+FLOOR=15000  recall(card)=0.821  closed-world-prec=0.643  IDENTITY-prec=0.995  (correct=211 subst=1 novel-excluded=116)
+FLOOR=8000  recall(card)=0.837  closed-world-prec=0.612  IDENTITY-prec=0.995  (correct=218 subst=1 novel-excluded=137)
+LEAKFIX-DONE

@@ -1,0 +1,13 @@
+  ...40000 parsed, 40000 m/z
+  ...80000 parsed, 80000 m/z
+  ...120000 parsed, 120000 m/z
+  ...160000 parsed, 159644 m/z
+universe: 172406 compounds, 170198 with [M-H] m/z (50-1500 Da)
+
+isobaric competitors per MAF m/z (within 10.0ppm):
+  DD (1718 cmpds) : median 2  mean 2.7  max 10
+  UNIVERSE (172k) : median 8  mean 24  max 204
+  competition multiplier: 9x
+
+=> RT prediction must discriminate the MAF compound among ~8 co-isobaric
+   universe candidates per peak (vs ~2 in the DD). That is the open-world ask.
