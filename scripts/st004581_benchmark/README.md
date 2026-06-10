@@ -2,7 +2,29 @@
 
 Tiered **RT/RI → MS1 (→ MS2)** annotation of ST004581 (Metabolon) mzML against
 the public **Metabolon data dictionary** (`metabolon_data_dictionary_PMC_OA_subset`),
-scored per-feature TP/FP/FN vs the study MAF (`annotations_repaired.csv`).
+scored vs the study MAF (`annotations_repaired.csv`).
+
+> **📦 Packaged result → [`RESULTS_PACKAGE.md`](RESULTS_PACKAGE.md)** (+ [`results_vs_metabolon.csv`](results_vs_metabolon.csv)).
+> Self-contained writeup for paper/deck/grant: a sparse purchasable kit + the public
+> dictionary reproduces **~85% of Metabolon's expert manually-curated annotations**
+> (732/862 across 4 platforms) at **<2% misidentification**, no proprietary library /
+> standards / MS2. Run via `precision_diagnostics/forest_sweep_h2h.py`.
+
+## Headline — sparse-kit vs Metabolon (cardinality-scored, RT/RI+MS1, no MS2)
+
+| platform | curated compounds | recall | identity precision |
+|---|---|---|---|
+| lc/ms pos early | 203 | **0.887** | 1.000 |
+| lc/ms neg | 386 | **0.852** | 0.996 |
+| lc/ms pos late | 190 | **0.832** | 0.990 |
+| lc/ms polar | 83 | **0.783** | 1.000 |
+| **weighted** | **862** | **0.849** | **~0.997** |
+
+Comparators (neg, correct reference impls): GNPS/matchms **0.078**, OpenMS **0.27** recall
+— this method is **3–11×** at higher precision. Identity precision = misID rate on
+curator-adjudicated peaks (the meaningful number); closed-world precision (0.55–0.68)
+conservatively counts every out-of-scope call as our error. Engineering: streaming EIC
+extractor scales to 10⁵ ions in a bounded footprint (validated 99.94% vs dense).
 
 ## Two script families
 - `_subset_*.py` / `_build_gnps_*.py` — **local subset** runs (one batch/method).
@@ -15,7 +37,8 @@ scored per-feature TP/FP/FN vs the study MAF (`annotations_repaired.csv`).
   `c_fixes` (no-ik / presence / MIN_REP levers), `c_presence`, `c_isotope`,
   `c_noik`, `c_ddfix` (DD InChIKey backfill), `c_anchors` (RI-covering panels).
 
-## Headline results (full dataset, 480 mzML)
+## Earlier per-feature F1 analysis (full dataset, 480 mzML — historical, summarized-feature scoring)
+*Superseded as the headline by the cardinality-scored sparse-kit results above; kept for the FP/FN decomposition.*
 | Setting | F1 |
 |---|---|
 | RT/RI+MS1, answer-in-library (pooled, the Metabolon paradigm) | **0.763** |
