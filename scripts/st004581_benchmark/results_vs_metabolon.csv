@@ -1,0 +1,8 @@
+platform,curated_compounds,recall_cardinality,identity_precision,closed_world_precision,substitutions,method
+lc/ms pos early,203,0.887,1.000,0.558,0,sparse-kit RT/RI+MS1 (no MS2)
+lc/ms neg,386,0.852,0.996,0.592,1,sparse-kit RT/RI+MS1 (no MS2)
+lc/ms pos late,190,0.832,0.990,0.645,1,sparse-kit RT/RI+MS1 (no MS2)
+lc/ms polar,83,0.783,1.000,0.675,0,sparse-kit RT/RI+MS1 (no MS2)
+ALL (weighted),862,0.849,0.997,,2,sparse-kit RT/RI+MS1 (no MS2)
+lc/ms neg,386,0.078,0.938,,,COMPARATOR: GNPS spectral match (matchms)
+lc/ms neg,386,0.270,0.625,,,COMPARATOR: OpenMS FeatureFinderMetabo + accurate mass
