@@ -143,7 +143,7 @@ def group_peaks(mz):
     return dist
 
 # ---- CARDINALITY scoring: Hungarian assign candidates -> distinct-RT peaks per isobaric group ----
-recall_set=set(); assign_total=0; assign_maf=0; multi_resolved=0; multi_groups=0
+recall_set=set(); correct=0; subst=0; novel=0; multi_resolved=0; multi_groups=0
 for g in groups:
     mzrep=float(np.median([MZc[k] for k in g]))
     dist=group_peaks(mzrep)
@@ -153,14 +153,18 @@ for g in groups:
     nmaf_here=sum(1 for k in gg if inmaf[k])
     if nmaf_here>=2:
         multi_groups+=1
-        if len(dist)>=2: multi_resolved+=1   # RI-distinct isomers DO show as separate peaks (no MS2 needed)
+        if len(dist)>=2: multi_resolved+=1
     prt=np.array([predRT[k] for k in gg]); pkrt=np.array([d[0] for d in dist])
+    maf_pred=[predRT[k] for k in gg if inmaf[k]]
     cost=np.abs(prt[:,None]-pkrt[None,:]); ri,ci=linear_sum_assignment(cost)
     for a,b in zip(ri,ci):
         if cost[a,b]<=2*TIGHT:
-            assign_total+=1
-            if inmaf[gg[a]]: assign_maf+=1; recall_set.add(cik[gg[a]])
-print(f"  >>> CARDINALITY (Hungarian, one cand per distinct-RT peak; ties impossible): "
-      f"recall {len(recall_set)/nmaf:.3f}  precision {assign_maf/max(assign_total,1):.3f}  "
-      f"(assignments {assign_total}, MAF {assign_maf}) <<<")
+            peakrt=pkrt[b]
+            if inmaf[gg[a]]: correct+=1; recall_set.add(cik[gg[a]])
+            elif any(abs(mp-peakrt)<=2*TIGHT for mp in maf_pred): subst+=1
+            else: novel+=1
+tot=correct+subst+novel
+print(f"  >>> CARDINALITY  recall {len(recall_set)/nmaf:.3f}  | assignments={tot} correct={correct} subst={subst} novel={novel}")
+print(f"      closed-world precision (novels count as FP)        : {correct/max(tot,1):.3f}")
+print(f"      MAF-ONLY precision (FP only if a MAF owns the peak): {correct/max(correct+subst,1):.3f}")
 print(f"      multi-MAF isobaric groups with >=2 resolvable RT peaks (separable WITHOUT MS2): {multi_resolved}/{multi_groups}")

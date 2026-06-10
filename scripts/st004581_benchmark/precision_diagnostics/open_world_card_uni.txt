@@ -1,4 +1,6 @@
 LIB=uni  candidates=68609  MAF in candidates=303/386  (feature-detectable subset)
-  naive clusters 3890; clusters holding >=2 MAF (RT+mz fuses RI-distinct isomers): 30
-  >>> CARDINALITY (Hungarian, one cand per distinct-RT peak; ties impossible): recall 0.223  precision 0.024  (assignments 3613, MAF 86) <<<
+  naive clusters 3899; clusters holding >=2 MAF (RT+mz fuses RI-distinct isomers): 29
+  >>> CARDINALITY  recall 0.228  | assignments=3614 correct=88 subst=153 novel=3373
+      closed-world precision (novels count as FP)        : 0.024
+      MAF-ONLY precision (FP only if a MAF owns the peak): 0.365
       multi-MAF isobaric groups with >=2 resolvable RT peaks (separable WITHOUT MS2): 46/53
