@@ -1,22 +1,25 @@
-# Public-library coverage of ST004581 neg MAF — via GIZMO MetaboliteMapper
+# Public-library coverage of ST004581 MAF — via GIZMO MetaboliteMapper (ALL 4 platforms)
 
-The "47% not in public libraries" was an artifact of measuring MS2-SPECTRAL-library coverage
-(which needs a physically deposited spectrum). For our STRUCTURE-based method the right measure is
-structure/metabolome coverage, and it's near-total.
+The "compounds not in public libraries" gap was an artifact of measuring MS2-SPECTRAL-library
+coverage (needs a physically deposited spectrum). For our STRUCTURE-based method the right measure
+is structure/metabolome coverage, and via the GIZMO MetaboliteMapper it is near-total on every platform.
 
-| coverage measure                                   | of 386 neg MAF | %   |
-|----------------------------------------------------|----------------|-----|
-| MS2 spectral libs (GNPS+MassBank+MoNA)             | 204            | 53% |
-| structure in human-metabolome graph (InChIKey14)   | 310            | 80% |
-| MetaboliteMapper by NAME (weird Metabolon names)   | 380/406        | 94% |
-| combined (mapper-name OR structure-in-graph)       | 398/406        | 98% |
+| platform        | nMAF | MS2-spectral | structure (ik14) | mapper by NAME | combined |
+|-----------------|------|--------------|------------------|----------------|----------|
+| lc/ms neg       | 406  | 53%          | 76%              | 94%            | **98%**  |
+| lc/ms pos-early | 205  | 71%          | 93%              | 99%            | **100%** |
+| lc/ms pos-late  | 201  | 56%          | 37%              | 97%            | **100%** |
+| lc/ms polar     | 93   | 61%          | 86%              | 94%            | **100%** |
 
-Mapper = gizmo.evidence.mappers.MetaboliteMapper on GIZMO human_full graph (2,642 ik14 metabolites,
-2,819 HMDB ids). It bridges Metabolon's idiosyncratic names (S-methylcysteine, pantoate, o-cresol
-sulfate, ...) to known human metabolites via fuzzy/abbreviation/salt/stereo handling.
+Mapper = gizmo.evidence.mappers.MetaboliteMapper on GIZMO data/processed/human_full/graph.json
+(2,642 ik14 metabolites, 2,819 HMDB ids; node-link JSON -> nx.DiGraph -> mg.graph). Resolves
+Metabolon's idiosyncratic names (S-methylcysteine, pantoate, o-cresol sulfate, lipid shorthand)
+via fuzzy/abbreviation/salt/stereo handling.
 
-## Implication
-- Library dependency for COVERAGE is ~fully satisfiable from PUBLIC structure sources (HMDB/metabolome ~98%).
-- What the DD uniquely provides vs HMDB is the RI prior (-> structure-RT NORI path, ~-2.6 pts) and
-  lower isobaric competition. Coverage is NOT the bottleneck.
-- Spectral matching (GNPS-style) is deposit-limited (53%); structure+RT matching is not.
+## Key points
+- Combined structure coverage 98-100% on ALL platforms -> no coverage ceiling for structure+RT matching.
+- pos-late: structure-by-ik14 only 37% but mapper-by-name 97% -- lipid-heavy platform where raw
+  InChIKey match badly undercounts; the mapper is essential ("weird names").
+- MS2-spectral coverage (53-71%) is deposit-limited -- the misleading metric.
+- DD's unique value vs public HMDB/metabolome = RI prior (NORI -2.6 pts) + lower isobaric competition,
+  NOT coverage. Spectral matching (GNPS-style) stays deposit-limited.
