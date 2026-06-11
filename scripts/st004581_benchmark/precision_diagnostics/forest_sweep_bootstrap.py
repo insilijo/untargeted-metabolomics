@@ -278,7 +278,8 @@ def ms2_at(k,rt):  # best MS2 similarity of candidate k's ref to an observed DDA
     for drt,sim in ms2hits[k]:
         if abs(drt-rt)<=DDA_RT_W and sim>best: best=sim
     return best
-_MS2LIBS={"Method3":["ms2_library_massbank_full_neg.json","ms2_library_mona_neg.json","ms2_library_gnps_neg.json"]}
+_POS=["ms2_library_massbank_full_pos.json","ms2_library_mona_pos.json","ms2_library_gnps_pos.json"]
+_MS2LIBS={"Method3":["ms2_library_massbank_full_neg.json","ms2_library_mona_neg.json","ms2_library_gnps_neg.json"],"Method1":_POS,"Method2":_POS,"Method4":_POS}
 if MS2MODE!="vanilla":
     import json as _json
     from squid_inc.features.ms2_similarity import entropy_similarity as _ent
@@ -336,6 +337,11 @@ if _ob.environ.get("SEED")=="bootstrap":
             for k in range(n): comp[k]["pred"]=float(inv(comp[k]["ri"]))
         kitX=np.array([comp[k]["desc"] for k in seed]); kitY=np.array([seedrt[k] for k in seed])   # override structure seed
         print("BOOTSTRAP: ladder from %d RI points, structure model from %d anchors (NO spike-in kit)"%(len(_u),len(seed)),flush=True)
+        if _ob.environ.get("NORI"):
+            _m=HistGradientBoostingRegressor(max_iter=300,max_depth=4,learning_rate=0.06,min_samples_leaf=3).fit(kitX,kitY)
+            for _k in range(n):
+                if comp[_k]["desc"] is not None: comp[_k]["pred"]=float(_m.predict(np.asarray(comp[_k]["desc"])[None,:])[0])
+            print("NORI: comp pred from structure model trained on discovered anchors (NO library RI)",flush=True)
     else:
         print("BOOTSTRAP: too few confident seeds (%d) -- falling back to kit"%len(seed),flush=True)
 
