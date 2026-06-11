@@ -130,13 +130,21 @@ assert old_dd in s; s=s.replace(old_dd,new_dd)
 s=s.replace('s=smi.get(ik14(c["ik"])); d=_descriptors(s) if s else None',
             's=(c.get("smi") or smi.get(ik14(c["ik"]))); d=_descriptors(s) if s else None')
 
-# 5b) STRUCT_RT: override comp pred with kit-trained structure model (no library RI) -- for no-RI libs
+# 5a) carry per-candidate RI; guard inv() when RI missing (no-RI libs / hybrid)
+s=s.replace('comp.append(dict(name=nm,mz=c["mz"],desc=(np.array(d) if d is not None else None),pred=float(inv(c["ri"])),ik=c["ik"]))',
+            'comp.append(dict(name=nm,mz=c["mz"],desc=(np.array(d) if d is not None else None),pred=(float(inv(c["ri"])) if c["ri"]>0 else 0.0),ri=float(c["ri"]),ik=c["ik"]))')
+
+# 5b) STRUCT_RT (all candidates) / HYBRID (only RI-less candidates) -> kit-trained structure model
 s=s.replace('n=len(comp); MZc=np.array([c["mz"] for c in comp]); tol=MZc*MZ_PPM*1e-6',
 '''n=len(comp); MZc=np.array([c["mz"] for c in comp]); tol=MZc*MZ_PPM*1e-6
-if _osf.environ.get("STRUCT_RT"):
+if _osf.environ.get("STRUCT_RT") or _osf.environ.get("HYBRID"):
     _km=HistGradientBoostingRegressor(max_iter=300,max_depth=4,learning_rate=0.06,min_samples_leaf=3).fit(kitX,kitY)
+    _allstruct=bool(_osf.environ.get("STRUCT_RT"))
+    _ns=0
     for _c in comp:
-        if _c["desc"] is not None: _c["pred"]=float(_km.predict(np.asarray(_c["desc"])[None,:])[0])''')
+        if _c["desc"] is not None and (_allstruct or _c.get("ri",0)<=0):
+            _c["pred"]=float(_km.predict(np.asarray(_c["desc"])[None,:])[0]); _ns+=1
+    print("HYBRID: %d/%d candidates use structure-RT (RI-less); rest use library RI"%(_ns,len(comp)) if not _allstruct else "STRUCT_RT: all %d use structure-RT"%len(comp),flush=True)''')
 
 # 6) M._norm -> _norm everywhere
 s=s.replace("M._norm","_norm")
