@@ -106,7 +106,7 @@ new_dd='''smi={}
 if SMI:
     for r in csv.DictReader(open(SMI)):
         _i=ik14(r.get("inchikey") or r.get("INCHIKEY") or ""); _s=r.get("smiles") or r.get("SMILES")
-        if _i and _s: smi.setdefault(_i,_s)
+        if _i and _s: smi[_i]=_s
 def _col(r,*names):
     for nme in names:
         if nme in r and r[nme] not in (None,""): return r[nme]
@@ -115,9 +115,11 @@ from collections import defaultdict as _dd
 DDFULL=_dd(list)  # platform -> [{name,mz,ri,ik(full),smi}]
 for _r in csv.DictReader(open(DD,encoding="utf-8-sig")):
     _P=(_col(_r,"PLATFORM","platform","method")).strip().lower()
-    try: _mz=float(_col(_r,"MASS","mz","mass")); _ri=float(_col(_r,"RI","ri","retention_index"))
+    try: _mz=float(_col(_r,"MASS","mz","mass"))
     except (TypeError,ValueError): continue
-    if _mz<=0 or _ri<=0: continue
+    if _mz<=0: continue
+    try: _ri=float(_col(_r,"RI","ri","retention_index"))
+    except (TypeError,ValueError): _ri=0.0
     _ik=_col(_r,"INCHIKEY","inchikey").strip(); _sm=_col(_r,"SMILES","smiles")
     DDFULL[_P].append(dict(name=_col(_r,"BIOCHEMICAL","name","compound"),mz=_mz,ri=_ri,ik=_ik,smi=_sm))
     if _sm and ik14(_ik) not in smi: smi[ik14(_ik)]=_sm
@@ -127,6 +129,14 @@ assert old_dd in s; s=s.replace(old_dd,new_dd)
 # 5) candidate SMILES fallback to library-provided
 s=s.replace('s=smi.get(ik14(c["ik"])); d=_descriptors(s) if s else None',
             's=(c.get("smi") or smi.get(ik14(c["ik"]))); d=_descriptors(s) if s else None')
+
+# 5b) STRUCT_RT: override comp pred with kit-trained structure model (no library RI) -- for no-RI libs
+s=s.replace('n=len(comp); MZc=np.array([c["mz"] for c in comp]); tol=MZc*MZ_PPM*1e-6',
+'''n=len(comp); MZc=np.array([c["mz"] for c in comp]); tol=MZc*MZ_PPM*1e-6
+if _osf.environ.get("STRUCT_RT"):
+    _km=HistGradientBoostingRegressor(max_iter=300,max_depth=4,learning_rate=0.06,min_samples_leaf=3).fit(kitX,kitY)
+    for _c in comp:
+        if _c["desc"] is not None: _c["pred"]=float(_km.predict(np.asarray(_c["desc"])[None,:])[0])''')
 
 # 6) M._norm -> _norm everywhere
 s=s.replace("M._norm","_norm")

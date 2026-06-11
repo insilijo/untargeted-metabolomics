@@ -100,9 +100,11 @@ from collections import defaultdict as _dd
 DDFULL=_dd(list)  # platform -> [{name,mz,ri,ik(full),smi}]
 for _r in csv.DictReader(open(DD,encoding="utf-8-sig")):
     _P=(_col(_r,"PLATFORM","platform","method")).strip().lower()
-    try: _mz=float(_col(_r,"MASS","mz","mass")); _ri=float(_col(_r,"RI","ri","retention_index"))
+    try: _mz=float(_col(_r,"MASS","mz","mass"))
     except (TypeError,ValueError): continue
-    if _mz<=0 or _ri<=0: continue
+    if _mz<=0: continue
+    try: _ri=float(_col(_r,"RI","ri","retention_index"))
+    except (TypeError,ValueError): _ri=0.0
     _ik=_col(_r,"INCHIKEY","inchikey").strip(); _sm=_col(_r,"SMILES","smiles")
     DDFULL[_P].append(dict(name=_col(_r,"BIOCHEMICAL","name","compound"),mz=_mz,ri=_ri,ik=_ik,smi=_sm))
     if _sm and ik14(_ik) not in smi: smi[ik14(_ik)]=_sm
@@ -252,6 +254,10 @@ else:
         pr=float(_kitmdl.predict(dd[None,:])[0]) if dd is not None else float(np.median(kitY))
         comp.append(dict(name="",mz=mz,desc=dd,pred=pr,ik=ik))
 n=len(comp); MZc=np.array([c["mz"] for c in comp]); tol=MZc*MZ_PPM*1e-6
+if _osf.environ.get("STRUCT_RT"):
+    _km=HistGradientBoostingRegressor(max_iter=300,max_depth=4,learning_rate=0.06,min_samples_leaf=3).fit(kitX,kitY)
+    for _c in comp:
+        if _c["desc"] is not None: _c["pred"]=float(_km.predict(np.asarray(_c["desc"])[None,:])[0])
 mid=np.array([(ik2id.get(c["ik"]) if len(c["ik"])>=20 and c["ik"] in ik2id else name2id.get(c["name"],-1)) if (c["name"] in maf or (len(c["ik"])>=20 and c["ik"] in maf_ik)) else -1 for c in comp])
 inmaf=mid>=0; nmaf=NMAF; N=len(MZML); DDIM=len(_descriptors("CCO"))
 import time as _t
@@ -272,7 +278,7 @@ def _extract_stream(files,mzc):
                 ismax=(prev1>FLOOR)&(prev1>=prev2)&(prev1>=cur)
                 for k in np.nonzero(ismax)[0]: pk[int(k)].append((rt1,prev1[int(k)]))
             prev2=prev1; prev1=cur; rt1=rt
-        CAP=int(__import__("os").environ.get("PEAK_CAP","200"))   # keep top-CAP peaks per m/z per file (memory bound; propagation only needs strong peaks)
+        CAP=40   # keep top-CAP peaks per m/z per file (memory bound; propagation only needs strong peaks)
         for k in range(nn):
             if not pk[k]: pks[k].append(np.empty((0,2))); continue
             a=np.array(pk[k])
