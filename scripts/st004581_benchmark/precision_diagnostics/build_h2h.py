@@ -129,7 +129,7 @@ def _extract_stream(files,mzc):
                 ismax=(prev1>FLOOR)&(prev1>=prev2)&(prev1>=cur)
                 for k in np.nonzero(ismax)[0]: pk[int(k)].append((rt1,prev1[int(k)]))
             prev2=prev1; prev1=cur; rt1=rt
-        CAP=40   # keep top-CAP peaks per m/z per file (memory bound; propagation only needs strong peaks)
+        CAP=int(__import__("os").environ.get("PEAK_CAP","200"))   # keep top-CAP peaks per m/z per file (memory bound; propagation only needs strong peaks)
         for k in range(nn):
             if not pk[k]: pks[k].append(np.empty((0,2))); continue
             a=np.array(pk[k])
