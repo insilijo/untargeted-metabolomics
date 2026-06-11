@@ -106,7 +106,7 @@ for _r in csv.DictReader(open(DD,encoding="utf-8-sig")):
     try: _ri=float(_col(_r,"RI","ri","retention_index"))
     except (TypeError,ValueError): _ri=0.0
     _ik=_col(_r,"INCHIKEY","inchikey").strip(); _sm=_col(_r,"SMILES","smiles")
-    DDFULL[_P].append(dict(name=_col(_r,"BIOCHEMICAL","name","compound"),mz=_mz,ri=_ri,ik=_ik,smi=_sm))
+    DDFULL[_P].append(dict(name=_col(_r,"BIOCHEMICAL","name","compound"),mz=_mz,ri=_ri,ik=_ik,smi=_sm,adduct=_col(_r,"adduct","ADDUCT")))
     if _sm and ik14(_ik) not in smi: smi[ik14(_ik)]=_sm
 lib0={p:[{"name":c["name"],"ik14":ik14(c["ik"]),"mz":c["mz"],"ri":c["ri"]} for c in v] for p,v in DDFULL.items()}
 # ---- KIT (subsampled) drives ladder + seed ----
@@ -214,7 +214,7 @@ if LIBRARY=="dd":
         nm=_norm(c["name"])
         if not nm: continue
         s=(c.get("smi") or smi.get(ik14(c["ik"]))); d=_descriptors(s) if s else None
-        comp.append(dict(name=nm,mz=c["mz"],desc=(np.array(d) if d is not None else None),pred=(float(inv(c["ri"])) if c["ri"]>0 else 0.0),ri=float(c["ri"]),ik=c["ik"]))
+        comp.append(dict(name=nm,mz=c["mz"],desc=(np.array(d) if d is not None else None),pred=(float(inv(c["ri"])) if c["ri"]>0 else 0.0),ri=float(c["ri"]),ik=c["ik"],adduct=c.get("adduct","")))
 else:
     from rdkit import Chem as _Chem
     from rdkit.Chem import Descriptors as _Desc
@@ -500,6 +500,24 @@ if GT and nmaf:
     npair_ent=sum(len(v) for v in pairs.values())
     print("ISOMER-PAIRS %s: %d skeletons w/ >=2 isomers (%d distinct compounds) | recovered ALL=%d, SOME=%d, NONE=%d"%(
         PLATFORM,len(pairs),npair_ent,both,one,none),flush=True)
+if os.environ.get("RICH_TSV"):
+    _dbm={}
+    if os.environ.get("DBMAP"):
+        for _r in csv.DictReader(open(os.environ["DBMAP"])): _dbm[_r["ik14"]]=_r["databases"]
+    _rc=cluster(votes>=1)
+    with open(os.environ["RICH_TSV"],"w") as _f:
+        _f.write("peak_id\tn_candidates\trank\tcompound\tinchikey\tmz\tadduct\tapex_sec\tpred_sec\trt_err_sec\tn_injections\tlog10_intensity\tin_answer_key\tconfidence\tdatabases\n")
+        for _pid,cl in enumerate(_rc):
+            _ap=gapex[max(cl,key=lambda k:strength[k])]
+            _members=sorted(cl,key=lambda k:abs(comp[k]["pred"]-(gapex[k] if not np.isnan(gapex[k]) else _ap)))
+            for _rk,k in enumerate(_members,1):
+                a=gapex[k] if not np.isnan(gapex[k]) else _ap
+                nr,_=rep_apex(k,comp[k]["pred"],TIGHT); rterr=abs(comp[k]["pred"]-a)
+                conf=max(0.0,1-rterr/(2*TIGHT))*min(1.0,nr/max(len(MZML),1))   # RT-fit x reproducibility
+                ink=("yes" if inmaf[k] else "no") if nmaf else ""
+                _f.write("%d\t%d\t%d\t%s\t%s\t%.4f\t%s\t%.1f\t%.1f\t%.1f\t%d\t%.2f\t%s\t%.2f\t%s\n"%(
+                    _pid,len(cl),_rk,comp[k]["name"],comp[k]["ik"],MZc[k],comp[k].get("adduct",""),a,comp[k]["pred"],rterr,nr,np.log10(strength[k]+1),ink,conf,_dbm.get(ik14(comp[k]["ik"]),"")))
+    print("wrote RICH per-candidate cluster report -> %s"%os.environ["RICH_TSV"],flush=True)
 if os.environ.get("OUTPUT_TSV"):
     _oc=cluster(votes>=1)
     with open(os.environ["OUTPUT_TSV"],"w") as _of:

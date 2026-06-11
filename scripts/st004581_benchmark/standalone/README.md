@@ -41,6 +41,12 @@ Optional:
 - `HYBRID=1` — per-candidate: use library RI where present, else structure→RT. **Recommended** for mixed libraries.
 - `CANON=canon_map.csv` — unify identities via a name/ik→canonical map (e.g. from a metabolite mapper) so
   libraries with different nomenclature are matched fairly. Strongly recommended for cross-library work.
+- `RICH_TSV` — **compound-cluster report**: one row per *(peak, candidate)*, listing the full isobaric
+  candidate set per peak with `confidence` (RT-fit × reproducibility), `rt_err_sec`, `n_candidates`
+  (ambiguity), `in_answer_key`, and — with `DBMAP` — a `databases` column (which of HMDB/GNPS/MassBank/
+  MoNA/ZINC/MetabolonDD know each candidate). Reports out-of-key alternatives honestly instead of forcing
+  one call.
+- `DBMAP` — csv `ik14,databases` (`;`-joined) used by `RICH_TSV` for cross-database provenance.
 - `PEAK_CAP=200` — max EIC peaks per m/z per file (memory bound; 200 saturates a normal library).
 - `KIT_MODE=chem` (chem|random|spread|gap), `ROUNDS=10`, `FLOOR`, `CACHE_DIR`, `MAX_MZML=8`, `PLATFORM_TAG`.
 
