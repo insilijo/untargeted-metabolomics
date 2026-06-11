@@ -41,21 +41,49 @@ experts**, not an automated pipeline, so matching it is a deliberately hard bar.
 | Precision | reported two ways (see §5); **out-of-scope calls treated conservatively as our errors** |
 | Provenance | leak-free — structures from PubChem, never the answer key |
 
-## 4. Headline results (RT/RI + MS1 only, no MS2)
+## 4. Headline results (RT/RI + MS1 only, no MS2; stereo/geometric-isomer-aware)
 
-| platform | curated compounds | **recall** | **identity precision** | closed-world precision |
+Scored on **distinct compounds** keyed by full InChIKey — stereo and geometric isomers
+(fumarate vs maleate, erythronate vs threonate, cis/trans, R/S, E/Z) are differentiated, not
+collapsed.
+
+| platform | distinct compounds | **recall** | **identity precision** | closed-world precision |
 |---|---|---|---|---|
-| pos-early | 203 | **0.887** | 1.000 | 0.558 |
-| neg | 386 | **0.852** | 0.996 | 0.592 |
-| pos-late | 190 | **0.832** | 0.990 | 0.645 |
-| polar | 83 | **0.783** | 1.000 | 0.675 |
-| **weighted** | **862** | **0.849** | **≈0.997** | — |
+| pos-early | 204 | **0.887** | 1.000 | 0.543 |
+| neg | 403 | **0.854** | 0.992 | 0.587 |
+| pos-late | 192 | **0.833** | 0.990 | 0.638 |
+| polar | 93 | **0.796** | 1.000 | 0.639 |
+| **weighted** | **892** | **0.851** | **≈0.996** | — |
 
-- **Recall 0.78–0.89** of an expert-curated gold standard, automatically, from a sparse kit.
+- **Recall 0.80–0.89** of an expert-curated gold standard, automatically, from a sparse kit.
 - **Identity precision 0.99–1.00**: among peaks the curators adjudicate, we essentially never
-  assign the wrong compound (0–1 substitution per platform).
+  assign the wrong compound (0–2 substitutions per platform).
 - Recall sits near the dataset's **detection-limited ceiling** (~0.87 recoverable); remaining
   misses are RT-mislocation or sub-floor signal, not algorithmic.
+
+### 4a. Stereo/geometric-isomer resolution (where retention beats MS2)
+
+Isomers that share a molecular skeleton (and so share m/z **and** fragmentation) cannot be
+separated by MS2. The RT/RI model assigns each to its own peak via the data-dictionary
+retention index:
+
+| platform | isomer skeletons | both/all recovered | partial | none |
+|---|---|---|---|---|
+| polar | 8 | **8** | 0 | 0 |
+| neg | 12 | **9** | 2 | 1 |
+| pos-late | 1 | **1** | 0 | 0 |
+| pos-early | 1 | 0 | 0 | 1 |
+| **total** | **22** | **18 (82%)** | 2 | 2 |
+
+All 8 polar pairs fully resolved (fumarate **and** maleate, etc.). The 4 unrecovered are
+**library-coverage** gaps (the DD does not list the second isomer), not algorithmic limits.
+
+### 4b. Compound-count provenance
+
+`934` total MAF rows → `−29` Metabolon-flagged unannotatable → `905` curated annotations →
+keyed by full InChIKey (with a name fallback for the 47% of DD entries lacking an InChIKey) →
+**`892` distinct compounds** scored. (A coarser InChIKey14 skeleton key would merge the stereo/
+geometric isomers above into 862 — this benchmark keeps them distinct.)
 
 ## 5. The two precision numbers (read both)
 

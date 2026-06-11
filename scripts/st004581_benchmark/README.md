@@ -10,15 +10,19 @@ scored vs the study MAF (`annotations_repaired.csv`).
 > (732/862 across 4 platforms) at **<2% misidentification**, no proprietary library /
 > standards / MS2. Run via `precision_diagnostics/forest_sweep_h2h.py`.
 
-## Headline — sparse-kit vs Metabolon (cardinality-scored, RT/RI+MS1, no MS2)
+## Headline — sparse-kit vs Metabolon (cardinality-scored, RT/RI+MS1, no MS2, stereo-isomer-aware)
 
-| platform | curated compounds | recall | identity precision |
+| platform | distinct compounds | recall | identity precision |
 |---|---|---|---|
-| lc/ms pos early | 203 | **0.887** | 1.000 |
-| lc/ms neg | 386 | **0.852** | 0.996 |
-| lc/ms pos late | 190 | **0.832** | 0.990 |
-| lc/ms polar | 83 | **0.783** | 1.000 |
-| **weighted** | **862** | **0.849** | **~0.997** |
+| lc/ms pos early | 204 | **0.887** | 1.000 |
+| lc/ms neg | 403 | **0.854** | 0.992 |
+| lc/ms pos late | 192 | **0.833** | 0.990 |
+| lc/ms polar | 93 | **0.796** | 1.000 |
+| **weighted** | **892** | **0.851** | **~0.996** |
+
+**Stereo/geometric-isomer resolution** (retention separates what MS2 can't): 18/22 isomer
+skeletons fully recovered — all 8 polar pairs (fumarate+maleate, erythronate+threonate, …).
+Scored on distinct compounds (full InChIKey), not merged skeletons.
 
 Comparators (neg, correct reference impls): GNPS/matchms **0.078**, OpenMS **0.27** recall
 — this method is **3–11×** at higher precision. Identity precision = misID rate on

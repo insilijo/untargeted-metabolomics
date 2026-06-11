@@ -1,8 +1,8 @@
-platform,curated_compounds,recall_cardinality,identity_precision,closed_world_precision,substitutions,method
-lc/ms pos early,203,0.887,1.000,0.558,0,sparse-kit RT/RI+MS1 (no MS2)
-lc/ms neg,386,0.852,0.996,0.592,1,sparse-kit RT/RI+MS1 (no MS2)
-lc/ms pos late,190,0.832,0.990,0.645,1,sparse-kit RT/RI+MS1 (no MS2)
-lc/ms polar,83,0.783,1.000,0.675,0,sparse-kit RT/RI+MS1 (no MS2)
-ALL (weighted),862,0.849,0.997,,2,sparse-kit RT/RI+MS1 (no MS2)
-lc/ms neg,386,0.078,0.938,,,COMPARATOR: GNPS spectral match (matchms)
-lc/ms neg,386,0.270,0.625,,,COMPARATOR: OpenMS FeatureFinderMetabo + accurate mass
+platform,distinct_compounds,recall_cardinality,identity_precision,closed_world_precision,substitutions,isomer_skeletons,isomers_fully_recovered,method
+lc/ms pos early,204,0.887,1.000,0.543,0,1,0,sparse-kit RT/RI+MS1 (no MS2) stereo-aware
+lc/ms neg,403,0.854,0.992,0.587,2,12,9,sparse-kit RT/RI+MS1 (no MS2) stereo-aware
+lc/ms pos late,192,0.833,0.990,0.638,1,1,1,sparse-kit RT/RI+MS1 (no MS2) stereo-aware
+lc/ms polar,93,0.796,1.000,0.639,0,8,8,sparse-kit RT/RI+MS1 (no MS2) stereo-aware
+ALL (weighted),892,0.851,0.996,,3,22,18,sparse-kit RT/RI+MS1 (no MS2) stereo-aware
+lc/ms neg,386,0.078,0.938,,,,,COMPARATOR: GNPS spectral match (matchms)
+lc/ms neg,386,0.270,0.625,,,,,COMPARATOR: OpenMS FeatureFinderMetabo + accurate mass
