@@ -9,6 +9,19 @@ scored vs the study MAF (`annotations_repaired.csv`).
 > dictionary reproduces **~85% of Metabolon's expert manually-curated annotations**
 > (732/862 across 4 platforms) at **<2% misidentification**, no proprietary library /
 > standards / MS2. Run via `precision_diagnostics/forest_sweep_h2h.py`.
+>
+> **🔓 Vendor-free / library-agnostic result → [`standalone/`](standalone/)** + supporting docs
+> ([`fair_library_comparison_canonical.md`](fair_library_comparison_canonical.md),
+> [`comprehensive_adducts_recover_observed_mz.md`](comprehensive_adducts_recover_observed_mz.md),
+> [`library_coverage_via_mapper.md`](library_coverage_via_mapper.md),
+> [`bootstrap_kitfree_results.md`](bootstrap_kitfree_results.md)).
+> Once identities are unified via the metabolite mapper, a **fully public library** (HMDB
+> metabolome) **ties or beats** Metabolon's data dictionary (canonical-matched weighted recall
+> HMDB 0.72 vs DD 0.69). Every vendor "advantage" is reproducible: **m/z** = computed adducts
+> (`standalone/build_library.py`, recovers + exceeds observed m/z), **measured RI** = self-built
+> quasi-library (kit-free bootstrap), **identity** = public mapper, **kit** = self-bootstrapped.
+> Vendor-dependency ledger: **empty**. Honest floor = stereo isomers (need measured RT) + ~3–4%
+> genuinely-ambiguous lipids (need a standard).
 
 ## Headline — sparse-kit vs Metabolon (cardinality-scored, RT/RI+MS1, no MS2, stereo-isomer-aware)
 
