@@ -25,3 +25,17 @@ Functional-group descriptors (user: "should resolve based on functional group"):
    sparse 30-kit overfits. Path = quasi-library accumulation (kit-free bootstrap) + FG descriptors ->
    approaches measured-RI accuracy. Stereo/geometric isomers = hard floor (no 2D model separates them;
    measured RT only).
+
+## Isobar DIFFERENTIATION descriptor ladder (necessary condition for order-based cardinality)
+Within-isobar ordering failed earlier mostly because 55% of isobar pairs got IDENTICAL structure
+predictions (descriptors too coarse to tell them apart). Tie rate by descriptor (neg, constitutional
+isobar pairs, n=65):
+  19 gross descriptors      : 48% tie
+  19 + functional groups    : ~30% tie (breaks ~half; residual = positional isomers)
+  Morgan fingerprint (r2)   : 0% tie  (every constitutional isobar distinct)
+=> DIFFERENTIATION is fully solvable with atom-environment fingerprints. BUT distinguishing is
+necessary not sufficient -- still must LEARN the elution ORDER, and richer descriptors need MORE
+anchors to avoid overfit (19@n30 overfits; FG@~100; Morgan@hundreds-thousands).
+PATH to order-based isobar cardinality = Morgan descriptors (distinguish) + quasi-library anchor
+density (rank). Measured RI = that map already learned over the full vendor library. Stereo/geometric
+isomers tie even under Morgan (no chirality) -> measured-RT floor.
