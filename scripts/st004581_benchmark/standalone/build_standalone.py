@@ -146,6 +146,30 @@ if _osf.environ.get("STRUCT_RT") or _osf.environ.get("HYBRID"):
             _c["pred"]=float(_km.predict(np.asarray(_c["desc"])[None,:])[0]); _ns+=1
     print("HYBRID: %d/%d candidates use structure-RT (RI-less); rest use library RI"%(_ns,len(comp)) if not _allstruct else "STRUCT_RT: all %d use structure-RT"%len(comp),flush=True)''')
 
+# 5c) IK_ONLY: match candidates to MAF entities by InChIKey only (no name) -- apples-to-apples
+s=s.replace('mid=np.array([(ik2id.get(c["ik"]) if len(c["ik"])>=20 and c["ik"] in ik2id else name2id.get(c["name"],-1)) if (c["name"] in maf or (len(c["ik"])>=20 and c["ik"] in maf_ik)) else -1 for c in comp])',
+'''if _osf.environ.get("IK_ONLY"):
+    mid=np.array([ik2id.get(c["ik"],-1) if (len(c["ik"])>=20 and c["ik"] in maf_ik) else -1 for c in comp])
+else:
+    mid=np.array([(ik2id.get(c["ik"]) if len(c["ik"])>=20 and c["ik"] in ik2id else name2id.get(c["name"],-1)) if (c["name"] in maf or (len(c["ik"])>=20 and c["ik"] in maf_ik)) else -1 for c in comp])''')
+
+# 5d) CANON: unify identities via metabolite-mapper canonical map (MAF + candidates), match on canonical
+s=s.replace('inmaf=mid>=0; nmaf=NMAF; N=len(MZML); DDIM=len(_descriptors("CCO"))',
+'''inmaf=mid>=0; nmaf=NMAF; N=len(MZML); DDIM=len(_descriptors("CCO"))
+if _osf.environ.get("CANON"):
+    _ci={}; _cn={}
+    for _r in csv.DictReader(open(_osf.environ["CANON"])):
+        (_ci if _r["keytype"]=="ik14" else _cn)[_r["key"]]=_r["canonical"]
+    def _cano(ik,nm): return _ci.get(ik14(ik)) or _cn.get(_norm(nm)) or (ik14(ik) or _norm(nm))
+    _c2id={}; _e=0; _fullc=set()
+    for _r in (csv.DictReader(open(GT)) if GT else []):
+        if _r.get("unannotatable")=="true": continue
+        _ct=_cano(_r.get("inchikey"),_r.get("name")); _fullc.add(_ct)
+        if (_r.get("platform") or "").strip().lower()==PLAT and _ct not in _c2id: _c2id[_ct]=_e; _e+=1
+    NMAF=_e; nmaf=_e; full_maf_ik=_fullc
+    mid=np.array([_c2id.get(_cano(c["ik"],c["name"]),-1) for c in comp]); inmaf=mid>=0
+    print("CANON: %d MAF canonical entities | %d candidates canonical-matched to MAF"%(NMAF,int(inmaf.sum())),flush=True)''')
+
 # 6) M._norm -> _norm everywhere
 s=s.replace("M._norm","_norm")
 
