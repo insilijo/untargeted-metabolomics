@@ -50,6 +50,41 @@ def _descriptors(smiles):
             float(rdMolDescriptors.CalcNumHeteroatoms(mol)),float(rdMolDescriptors.CalcNumSaturatedRings(mol)),
             float(nc),float(nn),float(no),float(ns),float(npp),float(nh)]
     except Exception: return None
+import argparse as _ap
+if any(a.startswith("--") for a in sys.argv[1:]) or "-h" in sys.argv[1:]:
+    _p=_ap.ArgumentParser(prog="sparse_anchor_annotate", description="Vendor-free RT/RI+MS1 metabolite annotation from a sparse anchor kit.")
+    _p.add_argument("--platform",required=True,help="platform label, e.g. 'lc/ms neg'")
+    _p.add_argument("--library",required=True,help="candidate library csv (inchikey,name,mz,ri[,smiles,adduct])")
+    _p.add_argument("--kit",required=True,help="anchor kit csv (smiles,observed_rt_sec,ri)")
+    _p.add_argument("--mzml",required=True,help="glob for raw mzML files")
+    _p.add_argument("--output",help="write per-peak annotations TSV")
+    _p.add_argument("--rich",help="write per-candidate compound-cluster TSV (uncertainty + cross-DB)")
+    _p.add_argument("--answer-key",help="truth MAF csv to score against (annotate-only if omitted)")
+    _p.add_argument("--smiles",help="ik14->smiles fallback csv if library lacks SMILES")
+    _p.add_argument("--dbmap",help="cross-database map csv (ik14,databases) for --rich provenance")
+    _p.add_argument("--canon",help="canonical-identity map csv to unify libraries' naming")
+    _p.add_argument("--hybrid",action="store_true",help="use library RI where present, else structure-RT (recommended)")
+    _p.add_argument("--struct-rt",action="store_true",help="predict all RT from structure (no-RI libraries)")
+    _p.add_argument("--floor",type=float,default=50000.0,help="intensity floor")
+    _p.add_argument("--peak-cap",type=int,default=200)
+    _p.add_argument("--kit-mode",default="chem",choices=["chem","random","spread","gap"])
+    _p.add_argument("--rounds",type=int,default=10)
+    _p.add_argument("--chains",type=int,default=10,help="number of forest chains")
+    _p.add_argument("--kit-size",type=int,default=0,help="0 = use all anchors")
+    _p.add_argument("--kit-seed",type=int,default=0)
+    _p.add_argument("--max-mzml",type=int,default=8)
+    _p.add_argument("--cache-dir",default="./.eic_cache")
+    _a=_p.parse_args()
+    _env={"PLATFORM":_a.platform,"LIBRARY_CSV":_a.library,"KIT_CSV":_a.kit,"MZML_GLOB":_a.mzml,
+          "FLOOR":str(_a.floor),"PEAK_CAP":str(_a.peak_cap),"KIT_MODE":_a.kit_mode,"ROUNDS":str(_a.rounds),
+          "MAX_MZML":str(_a.max_mzml),"CACHE_DIR":_a.cache_dir}
+    for _k,_v in [("OUTPUT_TSV",_a.output),("RICH_TSV",_a.rich),("ANSWER_KEY_CSV",_a.answer_key),
+                  ("SMILES_CSV",_a.smiles),("DBMAP",_a.dbmap),("CANON",_a.canon)]:
+        if _v: _env[_k]=_v
+    if _a.hybrid: _env["HYBRID"]="1"
+    if _a.struct_rt: _env["STRUCT_RT"]="1"
+    os.environ.update(_env)
+    sys.argv=[sys.argv[0],str(_a.kit_size),str(_a.kit_seed),str(_a.chains)]
 KIT_SIZE=int(sys.argv[1]) if len(sys.argv)>1 else 0
 KIT_SEED=int(sys.argv[2]) if len(sys.argv)>2 else 0
 K=int(sys.argv[3]) if len(sys.argv)>3 else 6
