@@ -14,12 +14,13 @@ Sources (auto-downloaded into ./downloads unless already present):
   HMDB.json (GNPS HMDB lib)    external.gnps2.org           experimental MS2   (CC0)
   MassBank_NISTformat.msp      github MassBank-data latest  experimental MS2   (CC BY)
   MoNA-export-LipidBlast.json  mona.fiehnlab.ucdavis.edu    in-silico lipid    (CC BY)
-  hmdb_metabolites.xml         hmdb.ca  (LICENSE-GATED)     HMDB compounds     (ACADEMIC ONLY)
   PubChem PUG REST             pubchem.ncbi.nlm.nih.gov     DD SMILES backfill (public)
+HMDB compound universe is derived from the GNPS HMDB library (HMDB.json above) -- NOT the licence-gated
+hmdb.ca XML -- so there is no hands-on / academic-gated download step.
 Bundled (no clean public URL): inputs/metabolon_data_dictionary_PMC_OA_subset.csv (PMC-OA subset).
 
-LICENCE: HMDB is academic-only and taints the OUTPUT bundle -> PRIVATE / INTERNAL, never a public
-surface or the public Sextant repo. The other sources are individually redistributable.
+LICENCE: keep PRIVATE / INTERNAL. The compound identities trace to HMDB (redistributed via GNPS),
+so do not surface this bundle publicly or fold it into the public Sextant repo without checking.
 """
 import sys, os, csv, json, re, time, subprocess, urllib.request, urllib.parse, zipfile
 csv.field_size_limit(10**7)
@@ -34,7 +35,6 @@ GNPS_HMDB    = "https://external.gnps2.org/gnpslibrary/HMDB.json"
 MASSBANK_REL = "https://api.github.com/repos/MassBank/MassBank-data/releases/latest"
 MONA_PREDEF  = "https://mona.fiehnlab.ucdavis.edu/rest/downloads/predefined"
 MONA_RETRIEVE= "https://mona.fiehnlab.ucdavis.edu/rest/downloads/retrieve/"
-HMDB_ZIP     = "https://hmdb.ca/system/downloads/current/hmdb_metabolites.zip"
 UA           = "Mozilla/5.0 (build_references)"
 
 ik14   = lambda s: (s or "")[:14]
@@ -91,16 +91,8 @@ def stage_download():
             print("    unzipped MoNA ->", os.path.getsize(DL+"/MoNA-export-LipidBlast.json")//1024//1024,"MB")
         else: print("  have MoNA-export-LipidBlast.json -- skip")
     except Exception as e: print("  MoNA download failed:",e)
-    # HMDB metabolites XML (LICENSE-GATED -- frequently 403s automated requests)
-    if not os.path.exists(DL+"/hmdb_metabolites.xml"):
-        if curl(HMDB_ZIP, DL+"/hmdb_metabolites.zip"):
-            try:
-                with zipfile.ZipFile(DL+"/hmdb_metabolites.zip") as zf: zf.extractall(DL)
-            except Exception as e: print("  HMDB unzip failed:",e)
-        else:
-            print("  !! HMDB is licence-gated; download manually (academic acceptance) from\n"
-                  f"     {HMDB_ZIP}\n     and unzip hmdb_metabolites.xml into {DL}/ . HMDB stage will skip until then.")
-    else: print("  have hmdb_metabolites.xml -- skip")
+    # HMDB compounds come from the GNPS HMDB library (HMDB.json, already fetched above) -- no
+    # licence-gated hmdb.ca XML needed. See stage_hmdb.
 
 # ----------------------------------------------------------------------------- spectral index
 _rk=None
@@ -257,27 +249,22 @@ def stage_dd():
 
 # ----------------------------------------------------------------------------- HMDB compounds
 def stage_hmdb():
-    p=DL+"/hmdb_metabolites.xml"
-    if not os.path.exists(p): print("missing hmdb_metabolites.xml (licence-gated) -- see download notes; SKIP"); return
-    import xml.etree.ElementTree as ET
+    """HMDB compound universe FROM the GNPS HMDB library (external.gnps2.org/gnpslibrary/HMDB.json),
+    NOT the licence-gated hmdb.ca XML. This is the HMDB subset that actually has reference MS2 --
+    the right scope for an MS2 library, and it removes the only hands-on / academic-gated step."""
+    p=DL+"/HMDB.json"
+    if not os.path.exists(p): print("missing GNPS HMDB.json -- run download; SKIP"); return
     os.makedirs(OUT, exist_ok=True)
+    recs=json.load(open(p)); seen={}
+    for r in recs:
+        ik=(r.get("InChIKey_smiles") or r.get("InChIKey_inchi") or r.get("INCHIKEY") or "").strip()
+        sm=r.get("Smiles") or r.get("SMILES") or ""; inchi=r.get("INCHI") or ""
+        if not isfull(ik): ik=ik_from(sm,inchi) or ik
+        if isfull(ik) and ik not in seen: seen[ik]=(r.get("Compound_Name") or "", sm)
     w=csv.writer(open(OUT+"/hmdb_compounds.csv","w"))
-    w.writerow(["accession","name","inchikey","smiles","formula","mono_mass"]); n=0; t=time.time(); cur={}; depth=0
-    tag=lambda e:e.tag.split("}")[-1]
-    for ev,el in ET.iterparse(p,events=("start","end")):
-        t_=tag(el)
-        if ev=="start" and t_=="metabolite": depth+=1
-        elif ev=="end":
-            if t_ in ("accession","name","inchikey","smiles","chemical_formula","monisotopic_molecular_weight") and depth==1 and t_ not in cur:
-                cur[t_]=(el.text or "").strip()
-            elif t_=="metabolite":
-                depth-=1
-                if isfull(cur.get("inchikey","")):
-                    w.writerow([cur.get("accession",""),cur.get("name",""),cur["inchikey"],cur.get("smiles",""),
-                                cur.get("chemical_formula",""),cur.get("monisotopic_molecular_weight","")]); n+=1
-                cur={}; el.clear()
-                if n and n%50000==0: print(f"  HMDB {n} compounds, {time.time()-t:.0f}s",flush=True)
-    print(f"HMDB compounds: {n}",flush=True)
+    w.writerow(["accession","name","inchikey","smiles","formula","mono_mass"])
+    for ik,(nm,sm) in seen.items(): w.writerow(["",nm,ik,sm,"",""])
+    print(f"HMDB compounds (from GNPS HMDB library): {len(seen)}",flush=True)
 
 # ----------------------------------------------------------------------------- emit
 def stage_emit():
