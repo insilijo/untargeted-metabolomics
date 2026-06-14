@@ -277,24 +277,28 @@ def stage_emit():
             if isfull(r["inchikey"]): hmdb[r["inchikey"]]=(r["name"],r["smiles"])
     print(f"universes: DD {len(dd)} ik, HMDB {len(hmdb)} ik",flush=True)
     ddk=set(dd); hmk=set(hmdb)
-    byik={}; ref={"neg":{},"pos":{}}; counts={}
+    # MATCH SPECTRA ON ik14 (skeleton), not full InChIKey: MS2 fragmentation is stereo-insensitive,
+    # so reference spectra whose stereo/protonation layer differs from the DD/HMDB InChIKey are still
+    # valid references (RT separates stereoisomers downstream). Full-IK matching drops ~20% of overlap.
+    want14={ik14(k) for k in (ddk|hmk)}
+    by14={}; ref={"neg":{},"pos":{}}; counts={}
     for jf in ["idx_fast.jsonl","idx_mona.jsonl"]:
         p=OUT+"/"+jf
         if not os.path.exists(p): continue
         for line in open(p):
-            s=json.loads(line); ik=s["ik"]; counts[s["src"]]=counts.get(s["src"],0)+1
+            s=json.loads(line); ik=s["ik"]; k=ik14(ik); counts[s["src"]]=counts.get(s["src"],0)+1
             if ik and s["mode"] in ref:
-                k=ik14(ik); rank=(0 if s["kind"]=="experimental" else -1,len(s["peaks"])); cur=ref[s["mode"]].get(k)
+                rank=(0 if s["kind"]=="experimental" else -1,len(s["peaks"])); cur=ref[s["mode"]].get(k)
                 if cur is None or rank>cur[0]: ref[s["mode"]][k]=(rank,s["peaks"])
-            if ik in ddk or ik in hmk:
-                d=byik.setdefault(ik,[])
+            if k in want14:
+                d=by14.setdefault(k,[])
                 if sum(1 for x in d if x["src"]==s["src"] and x["mode"]==s["mode"])<3: d.append(s)
     print("index spectra by source:",counts,flush=True)
     def write_mgf(path,univ):
         nb=nc=0
         with open(path,"w") as f:
             for ik,(name,smiles) in univ.items():
-                specs=byik.get(ik,[])
+                specs=by14.get(ik14(ik),[])
                 if not specs: continue
                 nc+=1
                 for sp in specs:
